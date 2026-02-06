@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pycache/
+*.pytest_cache/
+
+# PyInstaller
+/dist/
+/build/
+*.spec
+
+# Settings / Config
+config.json
+
+# OS 系
+.DS_Store
+Thumbs.db
+
+# IDE / エディタ
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Log
+*.log
+
+# バイナリ / 実行ファイル
+*.exe
+*.dll
+*.so
+*.dylib
