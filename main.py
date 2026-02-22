@@ -34,6 +34,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             return """
             QDialog { background: #ffffff; }
             QLabel { color: #333333; font-size: 13px; font-weight: bold; }
+            QCheckBox { color: #333333; font-size: 13px; }
             QLineEdit { border: 1px solid #d5d5d7; padding: 10px 12px; border-radius: 10px; background: #ffffff; color: #000000; font-family: 'Consolas'; font-size: 14px; }
             QPushButton { background-color: #e8e8ea; color: #000000; border-radius: 10px; border: none; font-size: 13px; padding: 2px; }
             QPushButton:hover { background-color: #d5d5d7; }
@@ -61,6 +62,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             return """
             QDialog { background: #1c1c1e; }
             QLabel { color: #ffffff; font-size: 13px; font-weight: bold; }
+            QCheckBox { color: #ffffff; font-size: 13px; }
             QLineEdit { border: 1px solid #3a3a3c; padding: 10px 12px; border-radius: 10px; background: #2c2c2e; color: #0a84ff; font-family: 'Consolas'; font-size: 14px; }
             QPushButton { background-color: #2c2c2e; color: white; border-radius: 10px; border: 1px solid #3a3a3c; font-size: 13px; padding: 2px; }
             QPushButton:hover { background-color: #3a3a3c; }
