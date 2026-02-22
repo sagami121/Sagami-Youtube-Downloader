@@ -27,8 +27,20 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QPushButton#SecondaryBtn { background-color: #e8e8ea; color: #000000; font-size: 13px; font-weight: normal; }
             #SettingsBtn { background: transparent; color: #636366; font-size: 13px; }
             #ThemeBtn { background-color: #e8e8ea; color: #000000; font-weight: normal; }
-            QProgressBar { border: 1px solid #d5d5d7; background-color: #ffffff; border-radius: 8px; }
-            QProgressBar::chunk { background-color: #0a84ff; border-radius: 8px; }
+            QProgressBar {
+                border: 1px solid #c9c9ce;
+                background-color: #f1f2f6;
+                border-radius: 10px;
+                padding: 2px;
+                text-align: center;
+                color: #0a84ff;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            QProgressBar::chunk {
+                border-radius: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #42a5ff, stop:1 #0a84ff);
+            }
             """
         else:  # settings
             return """
@@ -55,8 +67,20 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QPushButton#SecondaryBtn { background-color: #3a3a3c; font-size: 13px; font-weight: normal; }
             #SettingsBtn { background: transparent; color: #636366; font-size: 13px; }
             #ThemeBtn { background-color: #3a3a3c; color: #ffffff; font-weight: normal; }
-            QProgressBar { border: 1px solid #3a3a3c; background-color: #2c2c2e; border-radius: 8px; }
-            QProgressBar::chunk { background-color: #0a84ff; border-radius: 8px; }
+            QProgressBar {
+                border: 1px solid #444449;
+                background-color: #1f1f22;
+                border-radius: 10px;
+                padding: 2px;
+                text-align: center;
+                color: #8ec8ff;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            QProgressBar::chunk {
+                border-radius: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #66b8ff, stop:1 #0a84ff);
+            }
             """
         else:  # settings
             return """
@@ -380,7 +404,7 @@ class Main(QWidget):
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setVisible(False)
-        self.progress_bar.setFixedHeight(16)
+        self.progress_bar.setFixedHeight(18)
         card_layout.addWidget(self.progress_bar)
 
         # 詳細設定
@@ -550,8 +574,20 @@ class Main(QWidget):
             QPushButton#SecondaryBtn {{ background-color: {btn_bg}; color: {btn_text}; font-size: 13px; font-weight: normal; }}
             #SettingsBtn {{ background: transparent; color: #636366; font-size: 13px; }}
             #ThemeBtn {{ background-color: {btn_bg}; color: {btn_text}; font-weight: normal; }}
-            QProgressBar {{ border: 1px solid {input_border}; background-color: {input_bg}; border-radius: 8px; }}
-            QProgressBar::chunk {{ background-color: #0a84ff; border-radius: 8px; }}
+            QProgressBar {{
+                border: 1px solid {input_border};
+                background-color: {input_bg};
+                border-radius: 10px;
+                padding: 2px;
+                text-align: center;
+                color: {title_color};
+                font-size: 11px;
+                font-weight: 700;
+            }}
+            QProgressBar::chunk {{
+                border-radius: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #42a5ff, stop:1 #0a84ff);
+            }}
         """
         self.setStyleSheet(stylesheet)
 
