@@ -2,7 +2,7 @@
 
 ## 使い方
 
-1. `Sagami Youtube Downloader` を実行
+1. `Sagami Youtube Downloader.exe` を実行
 
 2. YouTube URL を入力  
 3. 保存先フォルダを選択  
