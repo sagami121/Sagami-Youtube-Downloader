@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QFont, QIcon
 
+VERSION = "v1.1"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 
 def get_stylesheet(theme="dark", widget_type="main"):
@@ -183,8 +184,12 @@ class Settings(QDialog):
         super().__init__(parent)
         self.parent_win = parent
         self.setWindowTitle("出力設定")
-        self.setFixedWidth(420)
+        self.setFixedSize(420, 560)
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, False)
         self.cfg = load_config()
+        
+        # ダイアログを親ウィンドウの中央に配置するように設定
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(30, 30, 30, 30)
@@ -225,6 +230,9 @@ class Settings(QDialog):
 
         layout.addWidget(QLabel("ファイル名の設定"))
         tag_layout = QGridLayout()
+        tag_layout.setContentsMargins(0, 0, 0, 0)
+        tag_layout.setHorizontalSpacing(14)
+        tag_layout.setVerticalSpacing(10)
         tags = [
             ("タイトル", "%(title)s"), ("動画ID", "[%(id)s]"), 
             ("投稿者", "[%(uploader)s]"), ("投稿日", "[%(upload_date)s]"),
@@ -233,7 +241,7 @@ class Settings(QDialog):
 
         for i, (label, code) in enumerate(tags):
             btn = QPushButton(label)
-            btn.setMinimumHeight(40) 
+            btn.setMinimumHeight(36) 
             if code == "clear":
                 btn.clicked.connect(lambda: self.template_display.clear())
                 btn.setObjectName("ClearBtn")
@@ -248,6 +256,14 @@ class Settings(QDialog):
         save_btn.setMinimumHeight(50)
         save_btn.clicked.connect(self.save)
         layout.addWidget(save_btn)
+        
+        # バージョン情報
+        layout.addSpacing(15)
+        version_label = QLabel(f"Version: {VERSION}")
+        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_label.setStyleSheet("color: #8e8e93; font-size: 10px;")
+        layout.addWidget(version_label)
+        
         self.apply_style()
 
     def apply_style(self):
