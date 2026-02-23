@@ -124,12 +124,15 @@ def get_config_path() -> Path:
 
 
 def load_config():
-    default_path = os.path.join(os.path.expanduser("~"), "Downloads")
+    default_path = ""
+    downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
     cfg_path = get_config_path()
     try:
         with open(cfg_path, "r", encoding="utf-8") as f:
             cfg = json.load(f)
             if "path" not in cfg:
+                cfg["path"] = default_path
+            elif str(cfg.get("path", "")).strip() == downloads_path:
                 cfg["path"] = default_path
             if "theme" not in cfg:
                 cfg["theme"] = "dark"
@@ -598,7 +601,8 @@ class Main(QWidget):
         self.fps_combo.setCurrentIndex(fps_idx if fps_idx >= 0 else 0)
 
     def browse_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "保存先フォルダを選択", self.path_display.text())
+        start_dir = self.path_display.text().strip() or os.path.join(os.path.expanduser("~"), "Downloads")
+        folder = QFileDialog.getExistingDirectory(self, "保存先フォルダを選択", start_dir)
         if folder:
             self.path_display.setText(folder)
             self.cfg["path"] = folder
@@ -624,7 +628,8 @@ class Main(QWidget):
         cfg = load_config()
         cfg["video_quality"] = self.quality_combo.currentText()
         cfg["video_fps"] = self.fps_combo.currentData() or "Any"
-        self.t = DownloadThread(url, self.path_display.text(), cfg)
+        download_folder = self.path_display.text().strip() or os.path.join(os.path.expanduser("~"), "Downloads")
+        self.t = DownloadThread(url, download_folder, cfg)
         self.t.progress.connect(self.update_progress)
         self.t.finished.connect(self.done)
         self.t.start()
