@@ -4,6 +4,7 @@ import re
 import json
 import os
 import shutil
+import time
 from pathlib import Path
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve
@@ -21,25 +22,26 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QFrame#Card { background-color: #f5f5f7; border-radius: 24px; border: 1px solid #d5d5d7; }
             QLabel { color: #333333; font-size: 11px; font-weight: bold; margin-left: 5px; }
             QLabel#Title { color: #000000; font-size: 24px; font-weight: 200; margin-left: 0px; }
-            QLineEdit { border: 1px solid #d5d5d7; padding: 10px 12px; border-radius: 10px; background: #ffffff; color: #000000; font-size: 14px; }
+            QLineEdit, QComboBox { border: 1px solid #d5d5d7; padding: 10px 12px; border-radius: 10px; background: #ffffff; color: #000000; font-size: 14px; }
+            QLineEdit:focus, QComboBox:focus { border: 1px solid #d5d5d7; border-bottom: 2px solid #0a84ff; }
+            QComboBox::drop-down { border: none; width: 22px; }
             QPushButton { background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }
             QPushButton:hover { background-color: #409cff; }
             QPushButton#SecondaryBtn { background-color: #e8e8ea; color: #000000; font-size: 13px; font-weight: normal; }
-            #SettingsBtn { background: transparent; color: #636366; font-size: 13px; }
+            #SettingsBtn { background: transparent; color: #000000; font-size: 13px; }
             #ThemeBtn { background-color: #e8e8ea; color: #000000; font-weight: normal; }
             QProgressBar {
-                border: 1px solid #c9c9ce;
-                background-color: #f1f2f6;
-                border-radius: 10px;
-                padding: 2px;
+                border: none;
+                background-color: #e8e8ea;
+                border-radius: 4px;
                 text-align: center;
-                color: #0a84ff;
+                color: #333333;
                 font-size: 11px;
-                font-weight: 700;
+                font-weight: 600;
             }
             QProgressBar::chunk {
-                border-radius: 8px;
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #42a5ff, stop:1 #0a84ff);
+                border-radius: 4px;
+                background: #0a84ff;
             }
             """
         else:  # settings
@@ -61,25 +63,26 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QFrame#Card { background-color: #1c1c1e; border-radius: 24px; border: 1px solid #2c2c2e; }
             QLabel { color: #8e8e93; font-size: 11px; font-weight: bold; margin-left: 5px; }
             QLabel#Title { color: #ffffff; font-size: 24px; font-weight: 200; margin-left: 0px; }
-            QLineEdit { border: 1px solid #3a3a3c; padding: 10px 12px; border-radius: 10px; background: #2c2c2e; color: #ffffff; font-size: 14px; }
+            QLineEdit, QComboBox { border: 1px solid #3a3a3c; padding: 10px 12px; border-radius: 10px; background: #2c2c2e; color: #ffffff; font-size: 14px; }
+            QLineEdit:focus, QComboBox:focus { border: 1px solid #3a3a3c; border-bottom: 2px solid #0a84ff; }
+            QComboBox::drop-down { border: none; width: 22px; }
             QPushButton { background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }
             QPushButton:hover { background-color: #409cff; }
             QPushButton#SecondaryBtn { background-color: #3a3a3c; font-size: 13px; font-weight: normal; }
-            #SettingsBtn { background: transparent; color: #636366; font-size: 13px; }
+            #SettingsBtn { background: transparent; color: #ffffff; font-size: 13px; }
             #ThemeBtn { background-color: #3a3a3c; color: #ffffff; font-weight: normal; }
             QProgressBar {
-                border: 1px solid #444449;
-                background-color: #1f1f22;
-                border-radius: 10px;
-                padding: 2px;
+                border: none;
+                background-color: #2c2c2e;
+                border-radius: 4px;
                 text-align: center;
-                color: #8ec8ff;
+                color: #ffffff;
                 font-size: 11px;
-                font-weight: 700;
+                font-weight: 600;
             }
             QProgressBar::chunk {
-                border-radius: 8px;
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #66b8ff, stop:1 #0a84ff);
+                border-radius: 4px;
+                background: #0a84ff;
             }
             """
         else:  # settings
@@ -132,9 +135,21 @@ def load_config():
                 cfg["theme"] = "dark"
             if "embed_thumbnail" not in cfg:
                 cfg["embed_thumbnail"] = False
+            if "video_quality" not in cfg:
+                cfg["video_quality"] = "Best"
+            if "video_fps" not in cfg:
+                cfg["video_fps"] = "Any"
             return cfg
     except (FileNotFoundError, json.JSONDecodeError):
-        return {"format": "mp4", "template": "%(title)s", "path": default_path, "theme": "dark", "embed_thumbnail": False}
+        return {
+            "format": "mp4",
+            "template": "%(title)s",
+            "path": default_path,
+            "theme": "dark",
+            "embed_thumbnail": False,
+            "video_quality": "Best",
+            "video_fps": "Any",
+        }
 
 
 def save_config(cfg):
@@ -153,23 +168,106 @@ class DownloadThread(QThread):
         self.cfg = cfg
         self.process = None
         self._stopped = False
+        self._thumbnail_webps = set()
+        self._existing_webps = set()
+        self._run_started_ts = None
+
+    def _track_thumbnail_webp(self, line: str):
+        if not self.cfg.get("embed_thumbnail", False):
+            return
+
+        markers = [
+            "Destination: ",
+            "Writing video thumbnail to: ",
+            "Thumbnail is already present: ",
+        ]
+        for marker in markers:
+            if marker in line:
+                raw_path = line.split(marker, 1)[1].strip()
+                if raw_path.lower().endswith(".webp"):
+                    p = Path(raw_path)
+                    if not p.is_absolute():
+                        p = Path(self.folder) / p
+                    self._thumbnail_webps.add(p)
+                return
+
+        m = re.search(r'^\[download\]\s(.+?\.webp)\s+has already been downloaded$', line, re.IGNORECASE)
+        if m:
+            p = Path(m.group(1).strip())
+            if not p.is_absolute():
+                p = Path(self.folder) / p
+            self._thumbnail_webps.add(p)
+
+    def _cleanup_thumbnail_webps(self):
+        for p in self._thumbnail_webps:
+            try:
+                if p.exists() and p.is_file():
+                    p.unlink()
+            except Exception:
+                pass
+
+    def _snapshot_existing_webps(self):
+        root = Path(self.folder)
+        if not root.exists() or not root.is_dir():
+            return
+        try:
+            self._existing_webps = {p.resolve() for p in root.rglob("*.webp") if p.is_file()}
+        except Exception:
+            self._existing_webps = set()
+
+    def _cleanup_new_webps(self):
+        root = Path(self.folder)
+        if not root.exists() or not root.is_dir():
+            return
+
+        try:
+            current_webps = [p.resolve() for p in root.rglob("*.webp") if p.is_file()]
+        except Exception:
+            return
+
+        for p in current_webps:
+            if p in self._existing_webps:
+                continue
+            try:
+                if self._run_started_ts is not None and p.stat().st_mtime < (self._run_started_ts - 2):
+                    continue
+                p.unlink()
+            except Exception:
+                pass
 
     def run(self):
         template = self.cfg.get("template", "%(title)s")
         args = ["yt-dlp", self.url, "-P", self.folder, "-o", f"{template}.%(ext)s", "--newline", "--restrict-filenames"]
 
         if self.cfg.get("format") == "mp3":
-            args += ["-x", "--audio-format", "mp3"]
+            # MP3は最高品質設定で抽出
+            args += ["-x", "--audio-format", "mp3", "--audio-quality", "0"]
         else:
-            args += ["-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]",
-                     "--merge-output-format", "mp4",
-                     "--postprocessor-args", "ffmpeg:-c:a aac -ac 2"]
+            quality = self.cfg.get("video_quality", "Best")
+            fps = self.cfg.get("video_fps", "Any")
+
+            video_selector = "bv*[ext=mp4]"
+            if quality and quality != "Best":
+                h = quality.replace("p", "")
+                if h.isdigit():
+                    video_selector += f"[height<={h}]"
+            if fps and fps != "Any" and str(fps).isdigit():
+                video_selector += f"[fps<={fps}]"
+
+            format_selector = f"{video_selector}+ba[ext=m4a]/{video_selector}+ba/{video_selector}/b[ext=mp4]/b"
+
+            args += ["-f", format_selector,
+                     "--merge-output-format", "mp4"]
             
             # MP4の場合、サムネイル埋め込みオプションを追加
             if self.cfg.get("embed_thumbnail", False):
                 args += ["--write-thumbnail", "--embed-thumbnail"]
 
         try:
+            if self.cfg.get("embed_thumbnail", False):
+                self._snapshot_existing_webps()
+                self._run_started_ts = time.time()
+
             self.process = subprocess.Popen(
                 args,
                 stdout=subprocess.PIPE,
@@ -183,6 +281,7 @@ class DownloadThread(QThread):
                 if self._stopped:
                     break
                 line = line.strip()
+                self._track_thumbnail_webp(line)
                 if "[download]" in line:
                     m = re.search(r'(\d{1,3}(?:\.\d+)?)%', line)
                     if m:
@@ -195,6 +294,9 @@ class DownloadThread(QThread):
 
             self.process.wait()
             if not self._stopped and self.process.returncode == 0:
+                if self.cfg.get("embed_thumbnail", False):
+                    self._cleanup_thumbnail_webps()
+                    self._cleanup_new_webps()
                 self.progress.emit(100)
                 self.finished.emit("ダウンロードが完了しました")
             elif self._stopped:
@@ -204,6 +306,26 @@ class DownloadThread(QThread):
 
         except Exception as e:
             self.finished.emit(f"実行エラー: {e}")
+
+class FocusClearLineEdit(QLineEdit):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        icon = self.style().standardIcon(QStyle.StandardPixmap.SP_LineEditClearButton)
+        self._clear_action = self.addAction(icon, QLineEdit.ActionPosition.TrailingPosition)
+        self._clear_action.triggered.connect(self.clear)
+        self._clear_action.setVisible(False)
+        self.textChanged.connect(self._update_clear_action)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self._update_clear_action()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self._update_clear_action()
+
+    def _update_clear_action(self):
+        self._clear_action.setVisible(self.hasFocus() and bool(self.text()))
 
 class Settings(QDialog):
     def __init__(self, parent):
@@ -322,8 +444,8 @@ class Main(QWidget):
         super().__init__()
         self.setObjectName("Main")
         self.setWindowTitle("Sagami Youtube Downloader")
-        self.resize(800, 620)
-        self.setMinimumSize(600, 520)
+        self.resize(920, 700)
+        self.setMinimumSize(720, 600)
         self.cfg = load_config()
         self.is_animating = False  # アニメーション中かどうかを追跡
 
@@ -364,7 +486,7 @@ class Main(QWidget):
         # URL入力
         card_layout.addWidget(QLabel("動画URL"))
         url_layout = QHBoxLayout()
-        self.url = QLineEdit()
+        self.url = FocusClearLineEdit()
         self.url.setPlaceholderText("ここにリンクを貼り付け...")
         self.btn_paste = QPushButton("ペースト")
         self.btn_paste.setFixedWidth(90)
@@ -378,7 +500,7 @@ class Main(QWidget):
         # 保存先
         card_layout.addWidget(QLabel("保存先フォルダ"))
         path_layout = QHBoxLayout()
-        self.path_display = QLineEdit()
+        self.path_display = FocusClearLineEdit()
         self.path_display.setText(self.cfg.get("path"))
         self.path_display.setReadOnly(True)
         
@@ -391,6 +513,33 @@ class Main(QWidget):
         path_layout.addWidget(self.path_display)
         path_layout.addWidget(self.btn_browse)
         card_layout.addLayout(path_layout)
+
+        # 画質設定
+        card_layout.addWidget(QLabel("画質設定"))
+        mp4_opts_layout = QHBoxLayout()
+        mp4_opts_layout.setSpacing(10)
+
+        self.quality_combo = QComboBox()
+        self.quality_combo.addItems(["Best", "2160p", "1440p", "1080p", "720p", "480p", "360p"])
+        self.quality_combo.setMinimumHeight(38)
+        self.quality_combo.setCurrentText(self.cfg.get("video_quality", "Best"))
+
+        self.fps_combo = QComboBox()
+        self.fps_combo.addItem("Any", "Any")
+        self.fps_combo.addItem("60 fps", "60")
+        self.fps_combo.addItem("30 fps", "30")
+        self.fps_combo.addItem("24 fps", "24")
+        self.fps_combo.setMinimumHeight(38)
+        fps_idx = self.fps_combo.findData(str(self.cfg.get("video_fps", "Any")))
+        self.fps_combo.setCurrentIndex(fps_idx if fps_idx >= 0 else 0)
+
+        mp4_opts_layout.addWidget(self.quality_combo)
+        mp4_opts_layout.addWidget(self.fps_combo)
+        card_layout.addLayout(mp4_opts_layout)
+
+        self.quality_combo.currentTextChanged.connect(self.on_video_quality_changed)
+        self.fps_combo.currentIndexChanged.connect(self.on_video_fps_changed)
+        self.update_mp4_option_state()
 
         # ダウンロードボタン
         self.btn_dl = QPushButton("ダウンロードを開始")
@@ -408,9 +557,9 @@ class Main(QWidget):
         card_layout.addWidget(self.progress_bar)
 
         # 詳細設定
-        self.btn_settings = QPushButton("詳細設定を表示")
+        self.btn_settings = QPushButton("詳細設定")
         self.btn_settings.setObjectName("SettingsBtn")
-        self.btn_settings.clicked.connect(lambda: Settings(self).exec())
+        self.btn_settings.clicked.connect(self.open_settings)
         card_layout.addWidget(self.btn_settings, alignment=Qt.AlignmentFlag.AlignCenter)
 
         center_layout.addWidget(card)
@@ -423,8 +572,30 @@ class Main(QWidget):
     def apply_style(self):
         self.setStyleSheet(get_stylesheet(self.cfg.get("theme", "dark"), "main"))
 
+    def open_settings(self):
+        dlg = Settings(self)
+        if dlg.exec():
+            self.cfg = load_config()
+            self.update_mp4_option_state()
+
     def paste_url(self):
         self.url.setText(QApplication.clipboard().text())
+
+    def on_video_quality_changed(self, value):
+        self.cfg["video_quality"] = value
+        save_config(self.cfg)
+
+    def on_video_fps_changed(self, *_):
+        self.cfg["video_fps"] = self.fps_combo.currentData() or "Any"
+        save_config(self.cfg)
+
+    def update_mp4_option_state(self):
+        is_mp4 = self.cfg.get("format", "mp4") == "mp4"
+        self.quality_combo.setEnabled(is_mp4)
+        self.fps_combo.setEnabled(is_mp4)
+        self.quality_combo.setCurrentText(self.cfg.get("video_quality", "Best"))
+        fps_idx = self.fps_combo.findData(str(self.cfg.get("video_fps", "Any")))
+        self.fps_combo.setCurrentIndex(fps_idx if fps_idx >= 0 else 0)
 
     def browse_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "保存先フォルダを選択", self.path_display.text())
@@ -450,7 +621,10 @@ class Main(QWidget):
 
         self.btn_dl.setEnabled(True)
         self.btn_dl.setText("ダウンロード中... 0%")
-        self.t = DownloadThread(url, self.path_display.text(), load_config())
+        cfg = load_config()
+        cfg["video_quality"] = self.quality_combo.currentText()
+        cfg["video_fps"] = self.fps_combo.currentData() or "Any"
+        self.t = DownloadThread(url, self.path_display.text(), cfg)
         self.t.progress.connect(self.update_progress)
         self.t.finished.connect(self.done)
         self.t.start()
@@ -568,25 +742,26 @@ class Main(QWidget):
             QFrame#Card {{ background-color: {card_color}; border-radius: 24px; border: 1px solid {input_border}; }}
             QLabel {{ color: {label_color}; font-size: 11px; font-weight: bold; margin-left: 5px; }}
             QLabel#Title {{ color: {title_color}; font-size: 24px; font-weight: 200; margin-left: 0px; }}
-            QLineEdit {{ border: 1px solid {input_border}; padding: 10px 12px; border-radius: 10px; background: {input_bg}; color: {input_text}; font-size: 14px; }}
+            QLineEdit, QComboBox {{ border: 1px solid {input_border}; padding: 10px 12px; border-radius: 10px; background: {input_bg}; color: {input_text}; font-size: 14px; }}
+            QLineEdit:focus, QComboBox:focus {{ border: 1px solid {input_border}; border-bottom: 2px solid #0a84ff; }}
+            QComboBox::drop-down {{ border: none; width: 22px; }}
             QPushButton {{ background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }}
             QPushButton:hover {{ background-color: #409cff; }}
             QPushButton#SecondaryBtn {{ background-color: {btn_bg}; color: {btn_text}; font-size: 13px; font-weight: normal; }}
-            #SettingsBtn {{ background: transparent; color: #636366; font-size: 13px; }}
+            #SettingsBtn {{ background: transparent; color: {btn_text}; font-size: 13px; }}
             #ThemeBtn {{ background-color: {btn_bg}; color: {btn_text}; font-weight: normal; }}
             QProgressBar {{
-                border: 1px solid {input_border};
+                border: none;
                 background-color: {input_bg};
-                border-radius: 10px;
-                padding: 2px;
+                border-radius: 4px;
                 text-align: center;
                 color: {title_color};
                 font-size: 11px;
-                font-weight: 700;
+                font-weight: 600;
             }}
             QProgressBar::chunk {{
-                border-radius: 8px;
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #42a5ff, stop:1 #0a84ff);
+                border-radius: 4px;
+                background: #0a84ff;
             }}
         """
         self.setStyleSheet(stylesheet)
