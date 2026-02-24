@@ -21,7 +21,13 @@ def qt_message_filter(_msg_type, _context, message):
     text = str(message or "")
     if "QFont::setPointSize: Point size <= 0" in text:
         return
-    sys.stderr.write(text + "\n")
+    try:
+        err = getattr(sys, "stderr", None)
+        if err and hasattr(err, "write"):
+            err.write(text + "\n")
+    except Exception:
+        # Never crash app from Qt log handler.
+        pass
 
 def get_stylesheet(theme="dark", widget_type="main"):
     """テーマに応じたスタイルシートを返す"""
@@ -129,8 +135,11 @@ def lerp_color(start_color, end_color, progress):
 
 def get_config_path() -> Path:
     if getattr(sys, 'frozen', False):
-        # EXEとして実行されている場合
-        app_dir = Path(sys.executable).parent
+        # EXEとして実行されている場合はユーザー領域に保存
+        base_dir = Path(os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+        cfg_dir = base_dir / CONFIG_DIR_NAME
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        return cfg_dir / "config.json"
     else:
         # Pythonスクリプトとして実行されている場合
         app_dir = Path(__file__).parent
@@ -289,7 +298,7 @@ def load_config():
                 cfg["app_update_source_url"] = ""
             return cfg
     except (FileNotFoundError, json.JSONDecodeError):
-        return {
+        defaults = {
             "format": "mp4",
             "template": "%(title)s",
             "path": default_path,
@@ -301,10 +310,16 @@ def load_config():
             "time_range_input": "",
             "app_update_source_url": "",
         }
+        try:
+            save_config(defaults)
+        except Exception:
+            pass
+        return defaults
 
 
 def save_config(cfg):
     cfg_path = get_config_path()
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=4)
 
@@ -803,7 +818,7 @@ class Main(QWidget):
         top_bar = QHBoxLayout()
         top_bar.setContentsMargins(20, 10, 20, 10)
         top_bar.addStretch()
-        self.btn_theme = QPushButton("🌙 ダークモード" if self.cfg.get("theme", "dark") == "dark" else "☀️ ライトモード")
+        self.btn_theme = QPushButton("ダークモード" if self.cfg.get("theme", "dark") == "dark" else "ライトモード")
         self.btn_theme.setObjectName("ThemeBtn")
         self.btn_theme.setFixedWidth(150)
         self.btn_theme.setMinimumHeight(35)
@@ -1314,6 +1329,23 @@ class Main(QWidget):
         self.progress_bar.setValue(0)
         self._show_info("通知", msg)
 
+    def _handle_theme_error(self, phase: str, error: Exception):
+        try:
+            write_ini_log(
+                "theme_error",
+                {
+                    "phase": phase,
+                    "error": repr(error),
+                    "theme": self.cfg.get("theme", "dark"),
+                },
+                prefix="theme_error",
+            )
+        except Exception:
+            pass
+        self.is_animating = False
+        self.btn_theme.setEnabled(True)
+        self.apply_style()
+
     def toggle_theme(self):
         """テーマを切り替える（アニメーション付き）"""
         # アニメーション中なら処理をスキップ
@@ -1340,9 +1372,21 @@ class Main(QWidget):
         self.theme_anim.setStartValue(0.0)
         self.theme_anim.setEndValue(1.0)
         self.theme_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-        self.theme_anim.valueChanged.connect(lambda v: self.update_theme_color(v, new_theme))
-        self.theme_anim.finished.connect(lambda: self.finalize_theme(new_theme))
+        self.theme_anim.valueChanged.connect(lambda v: self._on_theme_anim_value_changed(v, new_theme))
+        self.theme_anim.finished.connect(lambda: self._on_theme_anim_finished(new_theme))
         self.theme_anim.start()
+
+    def _on_theme_anim_value_changed(self, value, new_theme):
+        try:
+            self.update_theme_color(float(value), new_theme)
+        except Exception as e:
+            self._handle_theme_error("valueChanged", e)
+
+    def _on_theme_anim_finished(self, new_theme):
+        try:
+            self.finalize_theme(new_theme)
+        except Exception as e:
+            self._handle_theme_error("finished", e)
 
     def update_theme_color(self, progress, new_theme):
         """背景色をアニメーションで更新"""
@@ -1430,7 +1474,7 @@ class Main(QWidget):
         save_config(self.cfg)
         
         # ボタンテキストを更新
-        self.btn_theme.setText("🌙 ダークモード" if new_theme == "dark" else "☀️ ライトモード")
+        self.btn_theme.setText("ダークモード" if new_theme == "dark" else "ライトモード")
         
         # 完全なスタイルを再適用
         self.apply_style()

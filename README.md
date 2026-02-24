@@ -24,3 +24,8 @@
 - 起動時にアプリ更新を自動確認します（最新版の場合は通知しません）  
 - 手動で確認する場合は「アプリ更新を確認」をクリック  
 - 更新に失敗した場合は、`logs` フォルダに `txt（ini形式）` のログが出力されます
+
+## ログ出力
+
+- エラー時は `logs` フォルダに `txt（ini形式）` のログを出力します  
+- 例: `download_error_YYYYMMDD_HHMMSS.txt`, `update_error_YYYYMMDD_HHMMSS.txt`
