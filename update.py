@@ -50,7 +50,9 @@ def wait_for_process_exit(pid: int, timeout_sec: int = 120):
 def download_installer(url: str) -> Path:
     parsed = urlparse(url)
     name = Path(parsed.path).name or "installer.exe"
-    target = Path(tempfile.gettempdir()) / f"sagami_update_{int(time.time())}_{name}"
+    temp_dir = Path(tempfile.gettempdir()) / "SagamiYoutubeDownloader"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    target = temp_dir / name
     req = urllib.request.Request(url, headers={"User-Agent": "Sagami-Youtube-Downloader-Updater"})
     with urllib.request.urlopen(req, timeout=60) as response:
         data = response.read()
@@ -58,15 +60,27 @@ def download_installer(url: str) -> Path:
     return target
 
 
+def _run_and_wait(cmd: list[str], flags: int, timeout_sec: int = 1800) -> bool:
+    try:
+        p = subprocess.Popen(cmd, creationflags=flags)
+        code = p.wait(timeout=timeout_sec)
+        return code == 0
+    except subprocess.TimeoutExpired:
+        return False
+    except Exception:
+        return False
+
+
 def try_start_installer(installer_path: Path) -> bool:
     ext = installer_path.suffix.lower()
-    flags = (subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS) if os.name == "nt" else 0
+    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
     if ext == ".msi":
-        subprocess.Popen(["msiexec", "/i", str(installer_path), "/qn", "/norestart"], creationflags=flags)
-        return True
+        return _run_and_wait(["msiexec", "/i", str(installer_path), "/qn", "/norestart"], flags)
 
     arg_sets = [
+        ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/TASKS=desktopicon"],
+        ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/MERGETASKS=!desktopicon"],
         ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"],
         ["/SILENT", "/NORESTART"],
         ["/S", "/NORESTART"],
@@ -74,17 +88,27 @@ def try_start_installer(installer_path: Path) -> bool:
     ]
 
     for extra in arg_sets:
-        try:
-            p = subprocess.Popen([str(installer_path), *extra], creationflags=flags)
-            time.sleep(2.0)
-            code = p.poll()
-            if code is None or code == 0:
-                return True
-        except Exception:
-            continue
+        if _run_and_wait([str(installer_path), *extra], flags):
+            return True
 
     try:
         os.startfile(str(installer_path))
+        time.sleep(5.0)
+        return True
+    except Exception:
+        return False
+
+
+def relaunch_app(launch_path: str) -> bool:
+    path = Path(launch_path).expanduser()
+    if not path.exists():
+        return False
+    flags = (subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS) if os.name == "nt" else 0
+    try:
+        if path.suffix.lower() == ".py":
+            subprocess.Popen([sys.executable, str(path)], creationflags=flags, cwd=str(path.parent))
+        else:
+            subprocess.Popen([str(path)], creationflags=flags, cwd=str(path.parent))
         return True
     except Exception:
         return False
@@ -94,6 +118,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--installer-url", required=True)
     parser.add_argument("--current-pid", type=int, default=0)
+    parser.add_argument("--launch-path", default="")
     args = parser.parse_args()
 
     try:
@@ -102,12 +127,19 @@ def main():
         ok = try_start_installer(installer_path)
         if not ok:
             raise RuntimeError("インストーラーの起動に失敗しました。")
+        relaunched = False
+        if args.launch_path:
+            # Give installer side-effects a moment to settle before relaunch.
+            time.sleep(2.0)
+            relaunched = relaunch_app(args.launch_path)
         write_ini_log(
             "update_started",
             {
                 "installer_url": args.installer_url,
                 "installer_path": str(installer_path),
                 "pid_waited": args.current_pid,
+                "launch_path": args.launch_path,
+                "relaunched": relaunched,
             },
             prefix="update_started",
         )
@@ -117,6 +149,7 @@ def main():
             {
                 "installer_url": args.installer_url,
                 "pid_waited": args.current_pid,
+                "launch_path": args.launch_path,
                 "error": repr(e),
             },
             prefix="update_error",

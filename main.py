@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler
 from PyQt6.QtGui import QFont, QIcon, QDesktopServices
 
-VERSION = "v1.2"
+VERSION = "v1.1"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 
@@ -1156,8 +1156,14 @@ class Main(QWidget):
             return
 
         try:
+            launch_path = sys.executable if getattr(sys, "frozen", False) else str((app_dir / "main.py").resolve())
             subprocess.Popen(
-                [python_cmd, str(updater_path), "--installer-url", installer_url, "--current-pid", str(os.getpid())],
+                [
+                    python_cmd, str(updater_path),
+                    "--installer-url", installer_url,
+                    "--current-pid", str(os.getpid()),
+                    "--launch-path", launch_path,
+                ],
                 cwd=str(app_dir),
                 creationflags=(subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS) if os.name == "nt" else 0
             )

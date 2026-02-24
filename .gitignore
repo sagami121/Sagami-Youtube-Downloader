@@ -25,6 +25,7 @@ Thumbs.db
 *.sublime-workspace
 
 # Log
+logs/
 *.log
 
 # バイナリ / 実行ファイル
