@@ -574,7 +574,7 @@ class YtDlpUpdateThread(QThread):
             self.finished.emit(False, "failed", "不明", "不明", f"yt-dlp 更新エラー: {e}")
 
 class AppUpdateThread(QThread):
-    finished = pyqtSignal(bool, str, str, str, str, str, str)
+    finished = pyqtSignal(bool, str, str, str, str, str, str, str)
 
     def __init__(self, source_url: str):
         super().__init__()
@@ -608,6 +608,23 @@ class AppUpdateThread(QThread):
             payload = response.read().decode("utf-8")
         return json.loads(payload)
 
+    def _pick_installer_asset_url(self, release_data: dict) -> str:
+        assets = release_data.get("assets") or []
+        if not isinstance(assets, list):
+            return ""
+        urls = []
+        for item in assets:
+            name = str(item.get("name", "")).lower()
+            url = str(item.get("browser_download_url", "")).strip()
+            if not url:
+                continue
+            if name.endswith(".exe") or name.endswith(".msi"):
+                urls.append((name, url))
+        if not urls:
+            return ""
+        preferred = [u for u in urls if ("setup" in u[0] or "installer" in u[0])]
+        return (preferred[0] if preferred else urls[0])[1]
+
     def _load_release(self):
         if not self.source_url:
             raise ValueError("更新元URLが未設定です。")
@@ -616,11 +633,12 @@ class AppUpdateThread(QThread):
         try:
             data = self._http_get_json(self._github_latest_release_api(self.source_url))
             latest_version = str(data.get("tag_name", "")).strip()
-            download_url = str(data.get("html_url", "")).strip()
+            release_page_url = str(data.get("html_url", "")).strip()
+            installer_url = self._pick_installer_asset_url(data)
             notes = str(data.get("body", "")).strip()
             published_at = str(data.get("published_at", "")).strip()
             if latest_version:
-                return latest_version, download_url, notes, published_at
+                return latest_version, release_page_url, notes, published_at, installer_url
         except urllib.error.HTTPError as e:
             # 404 は「Release未作成」の可能性が高いので tags へフォールバック
             if getattr(e, "code", None) != 404:
@@ -633,23 +651,23 @@ class AppUpdateThread(QThread):
         latest_version = str(tags[0].get("name", "")).strip()
         if not latest_version:
             raise ValueError("GitHub タグ名を取得できませんでした。")
-        download_url = self.source_url.rstrip("/") + "/releases"
+        release_page_url = self.source_url.rstrip("/") + "/releases"
         notes = "GitHub Release が未作成のため、タグを基準に更新判定しました。"
-        return latest_version, download_url, notes, ""
+        return latest_version, release_page_url, notes, "", ""
 
     def run(self):
         try:
-            latest_version, download_url, notes, published_at = self._load_release()
+            latest_version, release_page_url, notes, published_at, installer_url = self._load_release()
 
             if not latest_version:
-                self.finished.emit(False, "failed", "", "", "", "", "GitHub release の tag_name がありません。")
+                self.finished.emit(False, "failed", "", "", "", "", "", "GitHub release の tag_name がありません。")
                 return
 
             state = "update_available" if is_newer_version(latest_version, VERSION) else "up_to_date"
-            self.finished.emit(True, state, VERSION, latest_version, download_url, notes, published_at)
+            self.finished.emit(True, state, VERSION, latest_version, release_page_url, notes, published_at, installer_url)
         except Exception as e:
             reason = str(e).strip() or repr(e)
-            self.finished.emit(False, "failed", VERSION, "", "", reason, "")
+            self.finished.emit(False, "failed", VERSION, "", "", reason, "", "")
 
 class FocusClearLineEdit(QLineEdit):
     def __init__(self, *args, **kwargs):
@@ -952,15 +970,17 @@ class Main(QWidget):
         if theme == "light":
             return """
                 QMessageBox { background-color: #ffffff; }
-                QMessageBox QLabel { color: #222222; font-size: 13px; }
+                QMessageBox QLabel { color: #222222; font-size: 13px; font-weight: 400; }
+                QMessageBox QLabel#qt_msgbox_label { font-size: 16px; font-weight: 600; }
+                QMessageBox QLabel#qt_msgbox_informativelabel { font-size: 14px; font-weight: 400; }
                 QMessageBox QPushButton {
-                    min-width: 84px;
+                    min-width: 110px;
                     min-height: 34px;
                     border-radius: 8px;
                     border: none;
                     background-color: #0a84ff;
                     color: #ffffff;
-                    font-size: 13px;
+                    font-size: 12px;
                     font-weight: 600;
                     padding: 6px 10px;
                 }
@@ -968,15 +988,17 @@ class Main(QWidget):
             """
         return """
             QMessageBox { background-color: #1c1c1e; }
-            QMessageBox QLabel { color: #f2f2f7; font-size: 13px; }
+            QMessageBox QLabel { color: #f2f2f7; font-size: 13px; font-weight: 400; }
+            QMessageBox QLabel#qt_msgbox_label { font-size: 16px; font-weight: 600; }
+            QMessageBox QLabel#qt_msgbox_informativelabel { font-size: 14px; font-weight: 400; }
             QMessageBox QPushButton {
-                min-width: 84px;
+                min-width: 110px;
                 min-height: 34px;
                 border-radius: 8px;
                 border: none;
                 background-color: #0a84ff;
                 color: #ffffff;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: 600;
                 padding: 6px 10px;
             }
@@ -1097,12 +1119,46 @@ class Main(QWidget):
         self.app_status_label.setText(f"{VERSION} - 確認中...")
         self.app_updater = AppUpdateThread(source_url)
         self.app_updater.finished.connect(
-            lambda ok, state, current, latest, dl_url, notes, published_at:
-            self.on_app_update_finished(ok, state, current, latest, dl_url, notes, published_at, interactive, suppress_latest_popup)
+            lambda ok, state, current, latest, page_url, notes, published_at, installer_url:
+            self.on_app_update_finished(ok, state, current, latest, page_url, notes, published_at, installer_url, interactive, suppress_latest_popup)
         )
         self.app_updater.start()
 
-    def on_app_update_finished(self, ok: bool, state: str, current_version: str, latest_version: str, download_url: str, notes: str, published_at: str, interactive: bool, suppress_latest_popup: bool):
+    def _launch_background_update(self, installer_url: str, release_page_url: str):
+        app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+        updater_path = app_dir / "update.py"
+        if not updater_path.exists():
+            self._show_warning("更新", f"update.py が見つかりません: {updater_path}")
+            if release_page_url:
+                QDesktopServices.openUrl(QUrl(release_page_url))
+            return
+
+        python_cmd = sys.executable if not getattr(sys, "frozen", False) else (shutil.which("pythonw") or shutil.which("python"))
+        if not python_cmd:
+            self._show_warning("更新", "Python実行環境が見つからないため自動更新を開始できません。")
+            if release_page_url:
+                QDesktopServices.openUrl(QUrl(release_page_url))
+            return
+
+        try:
+            subprocess.Popen(
+                [python_cmd, str(updater_path), "--installer-url", installer_url, "--current-pid", str(os.getpid())],
+                cwd=str(app_dir),
+                creationflags=(subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS) if os.name == "nt" else 0
+            )
+            self._show_info("更新", "バックグラウンドで更新を開始しました。\nこのアプリは終了します。")
+            QApplication.quit()
+        except Exception as e:
+            log_path = write_ini_log(
+                "update_launch_error",
+                {"error": repr(e), "installer_url": installer_url, "updater_path": str(updater_path)},
+                prefix="update_launch_error",
+            )
+            self._show_warning("更新", f"自動更新の起動に失敗しました。\nログ: {log_path}")
+            if release_page_url:
+                QDesktopServices.openUrl(QUrl(release_page_url))
+
+    def on_app_update_finished(self, ok: bool, state: str, current_version: str, latest_version: str, release_page_url: str, notes: str, published_at: str, installer_url: str, interactive: bool, suppress_latest_popup: bool):
         self.btn_check_app_update.setEnabled(True)
         self.btn_check_app_update.setText("アプリ更新を確認")
         version_display = latest_version or current_version
@@ -1120,17 +1176,23 @@ class Main(QWidget):
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle("更新")
-            msg.setMinimumWidth(420)
+            msg.setMinimumWidth(460)
             msg.setText(f"アプリ更新があります。\n現在: {current_version}\n最新: {latest_version}")
             msg.setInformativeText(f"更新内容:\n{notes_text}")
             self._apply_messagebox_theme(msg)
+            auto_btn = None
             open_btn = None
-            if download_url:
-                open_btn = msg.addButton("ダウンロードページを開く", QMessageBox.ButtonRole.AcceptRole)
+            if installer_url:
+                auto_btn = msg.addButton("自動更新", QMessageBox.ButtonRole.AcceptRole)
+            if release_page_url:
+                open_btn = msg.addButton("ページを開く", QMessageBox.ButtonRole.AcceptRole)
             msg.addButton("閉じる", QMessageBox.ButtonRole.RejectRole)
             msg.exec()
-            if open_btn is not None and msg.clickedButton() == open_btn:
-                QDesktopServices.openUrl(QUrl(download_url))
+            clicked = msg.clickedButton()
+            if auto_btn is not None and clicked == auto_btn:
+                self._launch_background_update(installer_url, release_page_url)
+            elif open_btn is not None and clicked == open_btn:
+                QDesktopServices.openUrl(QUrl(release_page_url))
             return
 
         self.app_status_label.setText(f"{current_version} - 最新です")
@@ -1139,7 +1201,7 @@ class Main(QWidget):
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle("更新")
             msg.setMinimumWidth(420)
-            msg.setText(f"{current_version} は最新です。　")
+            msg.setText(f"{current_version} は最新です。　　")
             self._apply_messagebox_theme(msg)
             msg.exec()
 
