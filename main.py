@@ -281,6 +281,8 @@ def load_config():
                 cfg["video_quality"] = "Best"
             if "video_fps" not in cfg:
                 cfg["video_fps"] = "Any"
+            if "audio_quality" not in cfg:
+                cfg["audio_quality"] = "0"
             if "time_range_input" not in cfg:
                 cfg["time_range_input"] = ""
             if "app_update_source_url" not in cfg:
@@ -295,6 +297,7 @@ def load_config():
             "embed_thumbnail": False,
             "video_quality": "Best",
             "video_fps": "Any",
+            "audio_quality": "0",
             "time_range_input": "",
             "app_update_source_url": "",
         }
@@ -409,9 +412,19 @@ class DownloadThread(QThread):
             "--progress-template", "download:%(progress._percent_str)s"
         ]
 
-        if self.cfg.get("format") == "mp3":
-            # MP3は最高品質設定で抽出
-            args += ["-x", "--audio-format", "mp3", "--audio-quality", "0"]
+        out_format = self.cfg.get("format", "mp4")
+        if out_format == "mp3":
+            # MP3は指定音質で抽出
+            audio_quality = str(self.cfg.get("audio_quality", "0")).strip()
+            if not re.fullmatch(r"\d+(?:\.\d+)?", audio_quality):
+                audio_quality = "0"
+            args += ["-x", "--audio-format", "mp3", "--audio-quality", audio_quality]
+        elif out_format == "wav":
+            # WAVは再エンコード時の品質指定を使わず抽出
+            args += ["-x", "--audio-format", "wav"]
+        elif out_format == "m4a":
+            # M4Aは可能な限り再エンコードせず抽出
+            args += ["-x", "--audio-format", "m4a"]
         else:
             quality = self.cfg.get("video_quality", "Best")
             fps = self.cfg.get("video_fps", "Any")
@@ -677,22 +690,15 @@ class Settings(QDialog):
         layout.addWidget(QLabel("保存ファイル名の構成を選択してください"))
         
         layout.addWidget(QLabel("出力形式"))
-        self.fmt_group = QHBoxLayout()
-        self.btn_mp4 = QPushButton("Video (mp4)")
-        self.btn_mp3 = QPushButton("Audio (mp3)")
-        for b in [self.btn_mp4, self.btn_mp3]:
-            b.setCheckable(True)
-            b.setMinimumHeight(45)
-            self.fmt_group.addWidget(b)
-        
-        if self.cfg.get("format") == "mp3":
-            self.btn_mp3.setChecked(True)
-        else:
-            self.btn_mp4.setChecked(True)
-            
-        self.btn_mp4.clicked.connect(lambda: self.toggle_format("mp4"))
-        self.btn_mp3.clicked.connect(lambda: self.toggle_format("mp3"))
-        layout.addLayout(self.fmt_group)
+        self.format_combo = QComboBox()
+        self.format_combo.addItem("Video (mp4)", "mp4")
+        self.format_combo.addItem("Audio (mp3)", "mp3")
+        self.format_combo.addItem("Audio (wav)", "wav")
+        self.format_combo.addItem("Audio (m4a)", "m4a")
+        self.format_combo.setMinimumHeight(45)
+        fmt_idx = self.format_combo.findData(str(self.cfg.get("format", "mp4")))
+        self.format_combo.setCurrentIndex(fmt_idx if fmt_idx >= 0 else 0)
+        layout.addWidget(self.format_combo)
 
         # サムネイル埋め込み設定
         layout.addWidget(QLabel("その他の設定"))
@@ -748,21 +754,13 @@ class Settings(QDialog):
     def apply_style(self):
         self.setStyleSheet(get_stylesheet(self.parent_win.cfg.get("theme", "dark"), "settings"))
 
-    def toggle_format(self, fmt):
-        if fmt == "mp4":
-            self.btn_mp4.setChecked(True)
-            self.btn_mp3.setChecked(False)
-        else:
-            self.btn_mp3.setChecked(True)
-            self.btn_mp4.setChecked(False)
-
     def add_tag(self, code):
         current = self.template_display.text()
         new_text = (current + " " + code) if current else code
         self.template_display.setText(new_text)
 
     def save(self):
-        self.cfg["format"] = "mp3" if self.btn_mp3.isChecked() else "mp4"
+        self.cfg["format"] = self.format_combo.currentData() or "mp4"
         self.cfg["template"] = self.template_display.text() or "%(title)s"
         self.cfg["path"] = self.parent_win.path_display.text()
         self.cfg["embed_thumbnail"] = self.chk_thumbnail.isChecked()
@@ -857,8 +855,9 @@ class Main(QWidget):
         path_layout.addWidget(self.btn_browse)
         card_layout.addLayout(path_layout)
 
-        # 画質設定
-        card_layout.addWidget(QLabel("画質設定"))
+        # 画質/音質設定
+        self.media_quality_label = QLabel("画質設定")
+        card_layout.addWidget(self.media_quality_label)
         mp4_opts_layout = QHBoxLayout()
         mp4_opts_layout.setSpacing(8)
 
@@ -876,12 +875,23 @@ class Main(QWidget):
         fps_idx = self.fps_combo.findData(str(self.cfg.get("video_fps", "Any")))
         self.fps_combo.setCurrentIndex(fps_idx if fps_idx >= 0 else 0)
 
+        self.audio_quality_combo = QComboBox()
+        self.audio_quality_combo.addItem("最高 (0) - 320kbps", "0")
+        self.audio_quality_combo.addItem("高 (2) - 256kbps", "2")
+        self.audio_quality_combo.addItem("標準 (5) - 160kbps", "5")
+        self.audio_quality_combo.addItem("低 (7) - 128kbps", "7")
+        self.audio_quality_combo.setMinimumHeight(34)
+        aq_idx = self.audio_quality_combo.findData(str(self.cfg.get("audio_quality", "0")))
+        self.audio_quality_combo.setCurrentIndex(aq_idx if aq_idx >= 0 else 0)
+
         mp4_opts_layout.addWidget(self.quality_combo)
         mp4_opts_layout.addWidget(self.fps_combo)
+        mp4_opts_layout.addWidget(self.audio_quality_combo)
         card_layout.addLayout(mp4_opts_layout)
 
         self.quality_combo.currentTextChanged.connect(self.on_video_quality_changed)
         self.fps_combo.currentIndexChanged.connect(self.on_video_fps_changed)
+        self.audio_quality_combo.currentIndexChanged.connect(self.on_audio_quality_changed)
         self.update_mp4_option_state()
 
         actions_layout = QHBoxLayout()
@@ -1009,13 +1019,29 @@ class Main(QWidget):
         self.cfg["video_fps"] = self.fps_combo.currentData() or "Any"
         save_config(self.cfg)
 
+    def on_audio_quality_changed(self, *_):
+        self.cfg["audio_quality"] = self.audio_quality_combo.currentData() or "0"
+        save_config(self.cfg)
+
     def update_mp4_option_state(self):
         is_mp4 = self.cfg.get("format", "mp4") == "mp4"
+        self.media_quality_label.setText("画質設定" if is_mp4 else "音質設定")
+
+        self.quality_combo.setVisible(is_mp4)
+        self.fps_combo.setVisible(is_mp4)
         self.quality_combo.setEnabled(is_mp4)
         self.fps_combo.setEnabled(is_mp4)
-        self.quality_combo.setCurrentText(self.cfg.get("video_quality", "Best"))
-        fps_idx = self.fps_combo.findData(str(self.cfg.get("video_fps", "Any")))
-        self.fps_combo.setCurrentIndex(fps_idx if fps_idx >= 0 else 0)
+
+        self.audio_quality_combo.setVisible(not is_mp4)
+        self.audio_quality_combo.setEnabled(not is_mp4)
+
+        if is_mp4:
+            self.quality_combo.setCurrentText(self.cfg.get("video_quality", "Best"))
+            fps_idx = self.fps_combo.findData(str(self.cfg.get("video_fps", "Any")))
+            self.fps_combo.setCurrentIndex(fps_idx if fps_idx >= 0 else 0)
+        else:
+            aq_idx = self.audio_quality_combo.findData(str(self.cfg.get("audio_quality", "0")))
+            self.audio_quality_combo.setCurrentIndex(aq_idx if aq_idx >= 0 else 0)
 
     def browse_folder(self):
         start_dir = self.path_display.text().strip() or os.path.join(os.path.expanduser("~"), "Downloads")
@@ -1184,6 +1210,7 @@ class Main(QWidget):
         cfg = load_config()
         cfg["video_quality"] = self.quality_combo.currentText()
         cfg["video_fps"] = self.fps_combo.currentData() or "Any"
+        cfg["audio_quality"] = self.audio_quality_combo.currentData() or "0"
         cfg["time_range_input"] = self.time_range.text().strip()
         cfg["time_range_start"] = start_sec
         cfg["time_range_end"] = end_sec
