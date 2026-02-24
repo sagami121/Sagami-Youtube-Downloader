@@ -5,13 +5,23 @@ import json
 import os
 import shutil
 import time
+import urllib.request
+import urllib.error
+from datetime import datetime
 from pathlib import Path
 from PyQt6.QtWidgets import *
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler
+from PyQt6.QtGui import QFont, QIcon, QDesktopServices
 
-VERSION = "v1.1"
+VERSION = "v1.2"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
+APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
+
+def qt_message_filter(_msg_type, _context, message):
+    text = str(message or "")
+    if "QFont::setPointSize: Point size <= 0" in text:
+        return
+    sys.stderr.write(text + "\n")
 
 def get_stylesheet(theme="dark", widget_type="main"):
     """テーマに応じたスタイルシートを返す"""
@@ -20,7 +30,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             return """
             QWidget#Main { background-color: #ffffff; }
             QFrame#Card { background-color: #f5f5f7; border-radius: 24px; border: 1px solid #d5d5d7; }
-            QLabel { color: #333333; font-size: 11px; font-weight: bold; margin-left: 5px; }
+            QLabel { color: #333333; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }
             QLabel#Title { color: #000000; font-size: 24px; font-weight: 200; margin-left: 0px; }
             QLineEdit, QComboBox { border: 1px solid #d5d5d7; padding: 10px 12px; border-radius: 10px; background: #ffffff; color: #000000; font-size: 14px; }
             QLineEdit:focus, QComboBox:focus { border: 1px solid #d5d5d7; border-bottom: 2px solid #0a84ff; }
@@ -28,6 +38,8 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QPushButton { background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }
             QPushButton:hover { background-color: #409cff; }
             QPushButton#SecondaryBtn { background-color: #e8e8ea; color: #000000; font-size: 13px; font-weight: normal; }
+            QLabel#YtDlpStatusLabel { color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }
+            QLabel#AppStatusLabel { color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }
             #SettingsBtn { background: transparent; color: #000000; font-size: 13px; }
             #ThemeBtn { background-color: #e8e8ea; color: #000000; font-weight: normal; }
             QProgressBar {
@@ -50,6 +62,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QLabel { color: #333333; font-size: 13px; font-weight: bold; }
             QCheckBox { color: #333333; font-size: 13px; }
             QLineEdit { border: 1px solid #d5d5d7; padding: 10px 12px; border-radius: 10px; background: #ffffff; color: #000000; font-family: 'Consolas'; font-size: 14px; }
+            QLineEdit:focus { border: 1px solid #d5d5d7; border-bottom: 2px solid #0a84ff; }
             QPushButton { background-color: #e8e8ea; color: #000000; border-radius: 10px; border: none; font-size: 13px; padding: 2px; }
             QPushButton:hover { background-color: #d5d5d7; }
             QPushButton:checked { background-color: #0a84ff; color: white; border: none; font-weight: bold; }
@@ -61,7 +74,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             return """
             QWidget#Main { background-color: #000000; }
             QFrame#Card { background-color: #1c1c1e; border-radius: 24px; border: 1px solid #2c2c2e; }
-            QLabel { color: #8e8e93; font-size: 11px; font-weight: bold; margin-left: 5px; }
+            QLabel { color: #8e8e93; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }
             QLabel#Title { color: #ffffff; font-size: 24px; font-weight: 200; margin-left: 0px; }
             QLineEdit, QComboBox { border: 1px solid #3a3a3c; padding: 10px 12px; border-radius: 10px; background: #2c2c2e; color: #ffffff; font-size: 14px; }
             QLineEdit:focus, QComboBox:focus { border: 1px solid #3a3a3c; border-bottom: 2px solid #0a84ff; }
@@ -69,6 +82,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QPushButton { background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }
             QPushButton:hover { background-color: #409cff; }
             QPushButton#SecondaryBtn { background-color: #3a3a3c; font-size: 13px; font-weight: normal; }
+            QLabel#AppStatusLabel { color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }
             #SettingsBtn { background: transparent; color: #ffffff; font-size: 13px; }
             #ThemeBtn { background-color: #3a3a3c; color: #ffffff; font-weight: normal; }
             QProgressBar {
@@ -91,6 +105,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QLabel { color: #ffffff; font-size: 13px; font-weight: bold; }
             QCheckBox { color: #ffffff; font-size: 13px; }
             QLineEdit { border: 1px solid #3a3a3c; padding: 10px 12px; border-radius: 10px; background: #2c2c2e; color: #0a84ff; font-family: 'Consolas'; font-size: 14px; }
+            QLineEdit:focus { border: 1px solid #3a3a3c; border-bottom: 2px solid #0a84ff; }
             QPushButton { background-color: #2c2c2e; color: white; border-radius: 10px; border: 1px solid #3a3a3c; font-size: 13px; padding: 2px; }
             QPushButton:hover { background-color: #3a3a3c; }
             QPushButton:checked { background-color: #0a84ff; border: none; font-weight: bold; }
@@ -122,6 +137,130 @@ def get_config_path() -> Path:
     
     return app_dir / "config.json"
 
+def resolve_yt_dlp_command():
+    app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+    candidates = [app_dir / "yt-dlp.exe", app_dir / "yt-dlp"]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return [str(candidate)]
+    if shutil.which("yt-dlp"):
+        return ["yt-dlp"]
+    return None
+
+def resolve_aria2c_command():
+    app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+    candidates = [app_dir / "aria2c.exe", app_dir / "aria2c"]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return str(candidate)
+    return shutil.which("aria2c")
+
+def parse_timecode_to_seconds(value: str):
+    text = (value or "").strip()
+    if not text:
+        return None
+
+    if text.isdigit():
+        return int(text)
+
+    parts = text.split(":")
+    if len(parts) not in (2, 3):
+        return None
+    if not all(p.isdigit() for p in parts):
+        return None
+
+    if len(parts) == 2:
+        mm, ss = map(int, parts)
+        if ss >= 60:
+            return None
+        return mm * 60 + ss
+
+    hh, mm, ss = map(int, parts)
+    if mm >= 60 or ss >= 60:
+        return None
+    return hh * 3600 + mm * 60 + ss
+
+def parse_time_range(value: str):
+    raw = (value or "").strip()
+    if not raw:
+        return None, None, None
+
+    normalized = raw.replace(" ", "").replace("～", "~").replace("〜", "~").replace("－", "~").replace("-", "~")
+    if "~" not in normalized:
+        return None, None, "時間指定は `開始~終了` で入力してください。(例: 0:00~0:15)"
+
+    start_raw, end_raw = normalized.split("~", 1)
+    start_sec = parse_timecode_to_seconds(start_raw)
+    end_sec = parse_timecode_to_seconds(end_raw)
+    if start_sec is None or end_sec is None:
+        return None, None, "時間の形式が不正です。`秒` / `mm:ss` / `hh:mm:ss` を使ってください。"
+    if start_sec >= end_sec:
+        return None, None, "開始時間は終了時間より前にしてください。"
+
+    return str(start_sec), str(end_sec), None
+
+def tail_text(text: str, max_lines: int = 8):
+    lines = [line for line in (text or "").splitlines() if line.strip()]
+    if not lines:
+        return ""
+    if len(lines) > max_lines:
+        lines = lines[-max_lines:]
+    return "\n".join(lines)
+
+def version_key(version: str):
+    text = (version or "").strip().lower()
+    if text.startswith("v"):
+        text = text[1:]
+    nums = [int(x) for x in re.findall(r"\d+", text)]
+    nums = (nums + [0, 0, 0])[:3]
+    pre_rank = 0
+    pre_num = 0
+    if "alpha" in text:
+        pre_rank = -3
+    elif "beta" in text:
+        pre_rank = -2
+    elif "rc" in text:
+        pre_rank = -1
+    match = re.search(r"(alpha|beta|rc)\s*(\d+)?", text)
+    if match and match.group(2):
+        pre_num = int(match.group(2))
+    return (*nums, pre_rank, pre_num)
+
+def is_newer_version(latest: str, current: str) -> bool:
+    return version_key(latest) > version_key(current)
+
+def extract_latest_changelog_entry(changelog_text: str) -> str:
+    lines = (changelog_text or "").splitlines()
+    block = []
+    started = False
+    for line in lines:
+        if line.strip():
+            started = True
+            block.append(line.rstrip())
+        elif started:
+            break
+    return "\n".join(block).strip()
+
+def read_changelog_latest_entry() -> str:
+    try:
+        app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+        changelog_path = app_dir / "changelog.txt"
+        if not changelog_path.exists():
+            return ""
+        text = changelog_path.read_text(encoding="utf-8")
+        return extract_latest_changelog_entry(text)
+    except Exception:
+        return ""
+
+def format_release_date(iso_text: str) -> str:
+    text = (iso_text or "").strip()
+    if not text:
+        return ""
+    match = re.match(r"^(\d{4})-(\d{2})-(\d{2})", text)
+    if not match:
+        return ""
+    return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
+
 
 def load_config():
     default_path = ""
@@ -142,6 +281,10 @@ def load_config():
                 cfg["video_quality"] = "Best"
             if "video_fps" not in cfg:
                 cfg["video_fps"] = "Any"
+            if "time_range_input" not in cfg:
+                cfg["time_range_input"] = ""
+            if "app_update_source_url" not in cfg:
+                cfg["app_update_source_url"] = ""
             return cfg
     except (FileNotFoundError, json.JSONDecodeError):
         return {
@@ -152,6 +295,8 @@ def load_config():
             "embed_thumbnail": False,
             "video_quality": "Best",
             "video_fps": "Any",
+            "time_range_input": "",
+            "app_update_source_url": "",
         }
 
 
@@ -159,6 +304,21 @@ def save_config(cfg):
     cfg_path = get_config_path()
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=4)
+
+def write_ini_log(section: str, values: dict, prefix: str = "error") -> str:
+    app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+    logs_dir = app_dir / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = logs_dir / f"{prefix}_{ts}.txt"
+
+    lines = [f"[{section}]"]
+    for key, value in values.items():
+        text = str(value).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n")
+        lines.append(f"{key}={text}")
+
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return str(path)
 
 class DownloadThread(QThread):
     progress = pyqtSignal(int)
@@ -232,15 +392,22 @@ class DownloadThread(QThread):
             if p in self._existing_webps:
                 continue
             try:
-                if self._run_started_ts is not None and p.stat().st_mtime < (self._run_started_ts - 2):
-                    continue
                 p.unlink()
             except Exception:
                 pass
 
     def run(self):
         template = self.cfg.get("template", "%(title)s")
-        args = ["yt-dlp", self.url, "-P", self.folder, "-o", f"{template}.%(ext)s", "--newline", "--restrict-filenames"]
+        yt_cmd = resolve_yt_dlp_command()
+        if yt_cmd is None:
+            self.finished.emit("yt-dlp が見つかりません。")
+            return
+
+        args = yt_cmd + [
+            self.url, "-P", self.folder, "-o", f"{template}.%(ext)s",
+            "--newline",
+            "--progress-template", "download:%(progress._percent_str)s"
+        ]
 
         if self.cfg.get("format") == "mp3":
             # MP3は最高品質設定で抽出
@@ -266,7 +433,13 @@ class DownloadThread(QThread):
             if self.cfg.get("embed_thumbnail", False):
                 args += ["--write-thumbnail", "--embed-thumbnail"]
 
+        start_sec = self.cfg.get("time_range_start")
+        end_sec = self.cfg.get("time_range_end")
+        if start_sec is not None and end_sec is not None:
+            args += ["--download-sections", f"*{start_sec}-{end_sec}", "--force-keyframes-at-cuts"]
+
         try:
+            output_tail = []
             if self.cfg.get("embed_thumbnail", False):
                 self._snapshot_existing_webps()
                 self._run_started_ts = time.time()
@@ -276,6 +449,8 @@ class DownloadThread(QThread):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
@@ -284,16 +459,19 @@ class DownloadThread(QThread):
                 if self._stopped:
                     break
                 line = line.strip()
+                if line:
+                    output_tail.append(line)
+                    if len(output_tail) > 60:
+                        output_tail = output_tail[-60:]
                 self._track_thumbnail_webp(line)
-                if "[download]" in line:
-                    m = re.search(r'(\d{1,3}(?:\.\d+)?)%', line)
-                    if m:
-                        try:
-                            pct = int(float(m.group(1)))
-                        except Exception:
-                            continue
-                        if pct <= 100:
-                            self.progress.emit(pct)
+                m = re.search(r'(\d{1,3}(?:\.\d+)?)%', line)
+                if m:
+                    try:
+                        pct = int(float(m.group(1)))
+                    except Exception:
+                        continue
+                    if 0 <= pct <= 100:
+                        self.progress.emit(pct)
 
             self.process.wait()
             if not self._stopped and self.process.returncode == 0:
@@ -305,10 +483,160 @@ class DownloadThread(QThread):
             elif self._stopped:
                 self.finished.emit("ダウンロードはキャンセルされました")
             else:
-                self.finished.emit("エラーが発生しました")
+                log_path = write_ini_log(
+                    "download_error",
+                    {
+                        "url": self.url,
+                        "folder": self.folder,
+                        "returncode": self.process.returncode if self.process else "unknown",
+                        "command": " ".join(args),
+                        "output_tail": "\n".join(output_tail),
+                    },
+                    prefix="download_error",
+                )
+                self.finished.emit(f"エラーが発生しました。\nログ: {log_path}")
 
         except Exception as e:
-            self.finished.emit(f"実行エラー: {e}")
+            log_path = write_ini_log(
+                "download_exception",
+                {
+                    "url": self.url,
+                    "folder": self.folder,
+                    "error": repr(e),
+                    "command": " ".join(args) if "args" in locals() else "",
+                },
+                prefix="download_exception",
+            )
+            self.finished.emit(f"実行エラー: {e}\nログ: {log_path}")
+
+class YtDlpUpdateThread(QThread):
+    finished = pyqtSignal(bool, str, str, str, str)
+
+    def _get_version(self, yt_cmd):
+        try:
+            process = subprocess.run(
+                yt_cmd + ["--version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+            if process.returncode == 0:
+                ver = (process.stdout or "").strip()
+                if ver:
+                    return ver.splitlines()[-1].strip()
+        except Exception:
+            pass
+        return "不明"
+
+    def run(self):
+        yt_cmd = resolve_yt_dlp_command()
+        if yt_cmd is None:
+            self.finished.emit(False, "failed", "不明", "不明", "yt-dlp が見つかりません。")
+            return
+
+        try:
+            before_version = self._get_version(yt_cmd)
+            process = subprocess.Popen(
+                yt_cmd + ["-U"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+            output, _ = process.communicate()
+            after_version = self._get_version(yt_cmd)
+            if process.returncode == 0:
+                state = "updated"
+                if before_version != "不明" and after_version != "不明" and before_version == after_version:
+                    state = "up_to_date"
+                self.finished.emit(True, state, before_version, after_version, output or "更新チェックが完了しました。")
+            else:
+                self.finished.emit(False, "failed", before_version, after_version, output or "yt-dlp の更新に失敗しました。")
+        except Exception as e:
+            self.finished.emit(False, "failed", "不明", "不明", f"yt-dlp 更新エラー: {e}")
+
+class AppUpdateThread(QThread):
+    finished = pyqtSignal(bool, str, str, str, str, str, str)
+
+    def __init__(self, source_url: str):
+        super().__init__()
+        self.source_url = (source_url or "").strip()
+
+    def _github_latest_release_api(self, url: str) -> str:
+        text = (url or "").strip()
+        if text.endswith("/"):
+            text = text[:-1]
+        match = re.match(r"^https?://github\.com/([^/]+)/([^/]+)$", text)
+        if not match:
+            raise ValueError("GitHubリポジトリURLの形式が不正です。")
+        owner = match.group(1)
+        repo = match.group(2)
+        return f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+
+    def _github_tags_api(self, url: str) -> str:
+        text = (url or "").strip()
+        if text.endswith("/"):
+            text = text[:-1]
+        match = re.match(r"^https?://github\.com/([^/]+)/([^/]+)$", text)
+        if not match:
+            raise ValueError("GitHubリポジトリURLの形式が不正です。")
+        owner = match.group(1)
+        repo = match.group(2)
+        return f"https://api.github.com/repos/{owner}/{repo}/tags"
+
+    def _http_get_json(self, url: str):
+        req = urllib.request.Request(url, headers={"User-Agent": "Sagami-Youtube-Downloader"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            payload = response.read().decode("utf-8")
+        return json.loads(payload)
+
+    def _load_release(self):
+        if not self.source_url:
+            raise ValueError("更新元URLが未設定です。")
+
+        # 1) GitHub Releases がある場合はこちらを優先
+        try:
+            data = self._http_get_json(self._github_latest_release_api(self.source_url))
+            latest_version = str(data.get("tag_name", "")).strip()
+            download_url = str(data.get("html_url", "")).strip()
+            notes = str(data.get("body", "")).strip()
+            published_at = str(data.get("published_at", "")).strip()
+            if latest_version:
+                return latest_version, download_url, notes, published_at
+        except urllib.error.HTTPError as e:
+            # 404 は「Release未作成」の可能性が高いので tags へフォールバック
+            if getattr(e, "code", None) != 404:
+                raise
+
+        # 2) Release未作成時は tags の先頭を最新として扱う
+        tags = self._http_get_json(self._github_tags_api(self.source_url))
+        if not isinstance(tags, list) or not tags:
+            raise ValueError("GitHub からタグ情報を取得できませんでした。")
+        latest_version = str(tags[0].get("name", "")).strip()
+        if not latest_version:
+            raise ValueError("GitHub タグ名を取得できませんでした。")
+        download_url = self.source_url.rstrip("/") + "/releases"
+        notes = "GitHub Release が未作成のため、タグを基準に更新判定しました。"
+        return latest_version, download_url, notes, ""
+
+    def run(self):
+        try:
+            latest_version, download_url, notes, published_at = self._load_release()
+
+            if not latest_version:
+                self.finished.emit(False, "failed", "", "", "", "", "GitHub release の tag_name がありません。")
+                return
+
+            state = "update_available" if is_newer_version(latest_version, VERSION) else "up_to_date"
+            self.finished.emit(True, state, VERSION, latest_version, download_url, notes, published_at)
+        except Exception as e:
+            reason = str(e).strip() or repr(e)
+            self.finished.emit(False, "failed", VERSION, "", "", reason, "")
 
 class FocusClearLineEdit(QLineEdit):
     def __init__(self, *args, **kwargs):
@@ -472,14 +800,15 @@ class Main(QWidget):
 
         # カードを中央に配置するレイアウト
         center_layout = QHBoxLayout()
+        center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.addStretch()
 
         card = QFrame()
         card.setObjectName("Card")
         card.setFixedWidth(520)
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(40, 45, 40, 45)
-        card_layout.setSpacing(18)
+        card_layout.setContentsMargins(28, 26, 28, 24)
+        card_layout.setSpacing(5)
 
         title = QLabel("Sagami YouTube Downloader")
         title.setObjectName("Title")
@@ -489,27 +818,38 @@ class Main(QWidget):
         # URL入力
         card_layout.addWidget(QLabel("動画URL"))
         url_layout = QHBoxLayout()
+        url_layout.setSpacing(8)
         self.url = FocusClearLineEdit()
         self.url.setPlaceholderText("ここにリンクを貼り付け...")
+        self.url.setFixedHeight(40)
         self.btn_paste = QPushButton("ペースト")
         self.btn_paste.setFixedWidth(90)
-        self.btn_paste.setMinimumHeight(45)
+        self.btn_paste.setMinimumHeight(38)
         self.btn_paste.setObjectName("SecondaryBtn")
         self.btn_paste.clicked.connect(self.paste_url)
         url_layout.addWidget(self.url)
         url_layout.addWidget(self.btn_paste)
         card_layout.addLayout(url_layout)
 
+        card_layout.addWidget(QLabel("時間指定"))
+        self.time_range = FocusClearLineEdit()
+        self.time_range.setPlaceholderText("例: 0:00~0:15")
+        self.time_range.setText(self.cfg.get("time_range_input", ""))
+        self.time_range.setFixedHeight(40)
+        card_layout.addWidget(self.time_range)
+
         # 保存先
         card_layout.addWidget(QLabel("保存先フォルダ"))
         path_layout = QHBoxLayout()
+        path_layout.setSpacing(8)
         self.path_display = FocusClearLineEdit()
         self.path_display.setText(self.cfg.get("path"))
         self.path_display.setReadOnly(True)
+        self.path_display.setFixedHeight(40)
         
         self.btn_browse = QPushButton("選択")
         self.btn_browse.setFixedWidth(80)
-        self.btn_browse.setMinimumHeight(45)
+        self.btn_browse.setMinimumHeight(38)
         self.btn_browse.setObjectName("SecondaryBtn")
         self.btn_browse.clicked.connect(self.browse_folder)
         
@@ -520,11 +860,11 @@ class Main(QWidget):
         # 画質設定
         card_layout.addWidget(QLabel("画質設定"))
         mp4_opts_layout = QHBoxLayout()
-        mp4_opts_layout.setSpacing(10)
+        mp4_opts_layout.setSpacing(8)
 
         self.quality_combo = QComboBox()
         self.quality_combo.addItems(["Best", "2160p", "1440p", "1080p", "720p", "480p", "360p"])
-        self.quality_combo.setMinimumHeight(38)
+        self.quality_combo.setMinimumHeight(34)
         self.quality_combo.setCurrentText(self.cfg.get("video_quality", "Best"))
 
         self.fps_combo = QComboBox()
@@ -532,7 +872,7 @@ class Main(QWidget):
         self.fps_combo.addItem("60 fps", "60")
         self.fps_combo.addItem("30 fps", "30")
         self.fps_combo.addItem("24 fps", "24")
-        self.fps_combo.setMinimumHeight(38)
+        self.fps_combo.setMinimumHeight(34)
         fps_idx = self.fps_combo.findData(str(self.cfg.get("video_fps", "Any")))
         self.fps_combo.setCurrentIndex(fps_idx if fps_idx >= 0 else 0)
 
@@ -544,11 +884,32 @@ class Main(QWidget):
         self.fps_combo.currentIndexChanged.connect(self.on_video_fps_changed)
         self.update_mp4_option_state()
 
-        # ダウンロードボタン
+        actions_layout = QHBoxLayout()
+        actions_layout.setSpacing(8)
+
         self.btn_dl = QPushButton("ダウンロードを開始")
-        self.btn_dl.setMinimumHeight(55)
+        self.btn_dl.setMinimumHeight(46)
         self.btn_dl.clicked.connect(self.start)
-        card_layout.addWidget(self.btn_dl)
+        actions_layout.addWidget(self.btn_dl, 1)
+
+        self.btn_update_ytdlp = QPushButton("yt-dlp を更新")
+        self.btn_update_ytdlp.setObjectName("SecondaryBtn")
+        self.btn_update_ytdlp.setMinimumHeight(46)
+        self.btn_update_ytdlp.clicked.connect(self.update_ytdlp)
+        self.btn_update_ytdlp.setVisible(False)
+
+        self.btn_check_app_update = QPushButton("アプリ更新を確認")
+        self.btn_check_app_update.setObjectName("SecondaryBtn")
+        self.btn_check_app_update.setMinimumHeight(46)
+        self.btn_check_app_update.clicked.connect(self.check_app_update_manually)
+        actions_layout.addWidget(self.btn_check_app_update)
+
+        card_layout.addLayout(actions_layout)
+
+        self.app_status_label = QLabel(f"{VERSION} - 確認待ち")
+        self.app_status_label.setObjectName("AppStatusLabel")
+        self.app_status_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        card_layout.addWidget(self.app_status_label)
 
         # 進捗バー
         self.progress_bar = QProgressBar()
@@ -568,12 +929,68 @@ class Main(QWidget):
         center_layout.addWidget(card)
         center_layout.addStretch()
         main_layout.addLayout(center_layout)
-        
         main_layout.addStretch()
+
         self.apply_style()
+        QTimer.singleShot(700, self.check_app_update_on_startup)
 
     def apply_style(self):
         self.setStyleSheet(get_stylesheet(self.cfg.get("theme", "dark"), "main"))
+
+    def _messagebox_stylesheet(self) -> str:
+        theme = self.cfg.get("theme", "dark")
+        if theme == "light":
+            return """
+                QMessageBox { background-color: #ffffff; }
+                QMessageBox QLabel { color: #222222; font-size: 13px; }
+                QMessageBox QPushButton {
+                    min-width: 84px;
+                    min-height: 34px;
+                    border-radius: 8px;
+                    border: none;
+                    background-color: #0a84ff;
+                    color: #ffffff;
+                    font-size: 13px;
+                    font-weight: 600;
+                    padding: 6px 10px;
+                }
+                QMessageBox QPushButton:hover { background-color: #409cff; }
+            """
+        return """
+            QMessageBox { background-color: #1c1c1e; }
+            QMessageBox QLabel { color: #f2f2f7; font-size: 13px; }
+            QMessageBox QPushButton {
+                min-width: 84px;
+                min-height: 34px;
+                border-radius: 8px;
+                border: none;
+                background-color: #0a84ff;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 6px 10px;
+            }
+            QMessageBox QPushButton:hover { background-color: #409cff; }
+        """
+
+    def _apply_messagebox_theme(self, box: QMessageBox):
+        box.setStyleSheet(self._messagebox_stylesheet())
+
+    def _show_info(self, title: str, text: str):
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle(title)
+        box.setText(text)
+        self._apply_messagebox_theme(box)
+        box.exec()
+
+    def _show_warning(self, title: str, text: str):
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(title)
+        box.setText(text)
+        self._apply_messagebox_theme(box)
+        box.exec()
 
     def open_settings(self):
         dlg = Settings(self)
@@ -608,6 +1025,139 @@ class Main(QWidget):
             self.cfg["path"] = folder
             save_config(self.cfg)
 
+    def update_ytdlp(self):
+        if hasattr(self, "updater") and self.updater.isRunning():
+            return
+
+        if resolve_yt_dlp_command() is None:
+            self._show_warning("エラー", "yt-dlp が見つかりません。")
+            return
+
+        self.btn_update_ytdlp.setEnabled(False)
+        self.btn_update_ytdlp.setText("更新中...")
+        self.updater = YtDlpUpdateThread()
+        self.updater.finished.connect(self.on_ytdlp_updated)
+        self.updater.start()
+
+    def check_ytdlp_on_startup(self):
+        if resolve_yt_dlp_command() is None:
+            return
+        if hasattr(self, "startup_updater") and self.startup_updater.isRunning():
+            return
+
+        self.startup_updater = YtDlpUpdateThread()
+        self.startup_updater.finished.connect(self.on_startup_ytdlp_updated)
+        self.startup_updater.start()
+
+    def check_app_update_on_startup(self):
+        self.start_app_update_check(interactive=True, suppress_latest_popup=True)
+
+    def check_app_update_manually(self):
+        self.start_app_update_check(interactive=True, suppress_latest_popup=False)
+
+    def start_app_update_check(self, interactive: bool, suppress_latest_popup: bool = False):
+        if hasattr(self, "app_updater") and self.app_updater.isRunning():
+            return
+
+        source_url = str(self.cfg.get("app_update_source_url", "") or APP_GITHUB_REPO_URL).strip()
+        if not source_url:
+            self.app_status_label.setText(f"{VERSION} - 更新元URL未設定")
+            if interactive:
+                self._show_info("アプリ更新", "GitHubリポジトリURLが未設定です。\nconfig.json の app_update_source_url にURLを設定してください。")
+            return
+
+        self.btn_check_app_update.setEnabled(False)
+        self.btn_check_app_update.setText("確認中...")
+        self.app_status_label.setText(f"{VERSION} - 確認中...")
+        self.app_updater = AppUpdateThread(source_url)
+        self.app_updater.finished.connect(
+            lambda ok, state, current, latest, dl_url, notes, published_at:
+            self.on_app_update_finished(ok, state, current, latest, dl_url, notes, published_at, interactive, suppress_latest_popup)
+        )
+        self.app_updater.start()
+
+    def on_app_update_finished(self, ok: bool, state: str, current_version: str, latest_version: str, download_url: str, notes: str, published_at: str, interactive: bool, suppress_latest_popup: bool):
+        self.btn_check_app_update.setEnabled(True)
+        self.btn_check_app_update.setText("アプリ更新を確認")
+        version_display = latest_version or current_version
+
+        if not ok:
+            self.app_status_label.setText(f"{version_display} - 確認失敗")
+            if interactive:
+                reason = (notes or "").strip() or "不明なエラー"
+                self._show_warning("更新", f"更新確認に失敗しました。\n\n理由: {reason}")
+            return
+
+        if state == "update_available":
+            self.app_status_label.setText(f"{current_version}→{latest_version} - 更新あり")
+            notes_text = notes or "更新内容は取得できませんでした。"
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setWindowTitle("更新")
+            msg.setMinimumWidth(420)
+            msg.setText(f"アプリ更新があります。\n現在: {current_version}\n最新: {latest_version}")
+            msg.setInformativeText(f"更新内容:\n{notes_text}")
+            self._apply_messagebox_theme(msg)
+            open_btn = None
+            if download_url:
+                open_btn = msg.addButton("ダウンロードページを開く", QMessageBox.ButtonRole.AcceptRole)
+            msg.addButton("閉じる", QMessageBox.ButtonRole.RejectRole)
+            msg.exec()
+            if open_btn is not None and msg.clickedButton() == open_btn:
+                QDesktopServices.openUrl(QUrl(download_url))
+            return
+
+        self.app_status_label.setText(f"{current_version} - 最新です")
+        if interactive and not suppress_latest_popup:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setWindowTitle("更新")
+            msg.setMinimumWidth(420)
+            msg.setText(f"{current_version} は最新です。　")
+            self._apply_messagebox_theme(msg)
+            msg.exec()
+
+    def set_ytdlp_status(self, version: str, state: str):
+        if not hasattr(self, "ytdlp_status_label"):
+            return
+
+        version = (version or "不明").strip()
+        if state == "up_to_date":
+            self.ytdlp_status_label.setText(f"{version} - 最新です")
+        elif state == "updated":
+            self.ytdlp_status_label.setText(f"{version} - 更新しました")
+        else:
+            self.ytdlp_status_label.setText(f"{version} - 確認失敗")
+
+        self.ytdlp_status_label.setVisible(True)
+    def on_startup_ytdlp_updated(self, ok: bool, state: str, before_version: str, after_version: str, output: str):
+        status_version = after_version if after_version != "不明" else before_version
+        if ok and state == "up_to_date":
+            self.set_ytdlp_status(status_version, "up_to_date")
+            return
+        self.on_ytdlp_updated(ok, state, before_version, after_version, output)
+
+    def on_ytdlp_updated(self, ok: bool, state: str, before_version: str, after_version: str, output: str):
+        self.btn_update_ytdlp.setEnabled(True)
+        self.btn_update_ytdlp.setText("yt-dlp を更新")
+        body = tail_text(output)
+        status_version = after_version if after_version != "不明" else before_version
+        self.set_ytdlp_status(status_version, state if ok else "failed")
+        if ok and state == "up_to_date":
+            message = "yt-dlp は最新です。"
+        elif ok:
+            message = "yt-dlp を更新しました。"
+        else:
+            message = "yt-dlp の更新に失敗しました。"
+
+        message += f"\n\n更新前バージョン: {before_version}\n更新後バージョン: {after_version}"
+        if body:
+            message = f"{message}\n\n{body}"
+        if ok:
+            self._show_info("yt-dlp 更新", message)
+        else:
+            self._show_warning("yt-dlp 更新", message)
+
     def start(self):
         # Toggle: if a download is running, cancel it
         if hasattr(self, 't') and self.t.isRunning():
@@ -619,15 +1169,25 @@ class Main(QWidget):
             return
 
         # Check that yt-dlp is available
-        if shutil.which("yt-dlp") is None:
-            QMessageBox.warning(self, "エラー", "yt-dlp が見つかりません。yt-dlp をインストールしてください。")
+        if resolve_yt_dlp_command() is None:
+            self._show_warning("エラー", "yt-dlp が見つかりません。yt-dlp をインストールしてください。")
+            return
+
+        start_sec, end_sec, time_error = parse_time_range(self.time_range.text())
+        if time_error:
+            self._show_warning("時間指定エラー", time_error)
             return
 
         self.btn_dl.setEnabled(True)
         self.btn_dl.setText("ダウンロード中... 0%")
+        self.btn_update_ytdlp.setEnabled(False)
         cfg = load_config()
         cfg["video_quality"] = self.quality_combo.currentText()
         cfg["video_fps"] = self.fps_combo.currentData() or "Any"
+        cfg["time_range_input"] = self.time_range.text().strip()
+        cfg["time_range_start"] = start_sec
+        cfg["time_range_end"] = end_sec
+        save_config(cfg)
         download_folder = self.path_display.text().strip() or os.path.join(os.path.expanduser("~"), "Downloads")
         self.t = DownloadThread(url, download_folder, cfg)
         self.t.progress.connect(self.update_progress)
@@ -652,6 +1212,7 @@ class Main(QWidget):
             if hasattr(self.t, 'process') and self.t.process:
                 self.t.process.terminate()
             self.btn_dl.setText("キャンセル中...")
+            self.btn_update_ytdlp.setEnabled(True)
             self.progress_bar.setVisible(False)
         except Exception:
             pass
@@ -659,9 +1220,10 @@ class Main(QWidget):
     def done(self, msg):
         self.btn_dl.setEnabled(True)
         self.btn_dl.setText("ダウンロードを開始")
+        self.btn_update_ytdlp.setEnabled(True)
         self.progress_bar.setVisible(False)
         self.progress_bar.setValue(0)
-        QMessageBox.information(self, "通知", msg)
+        self._show_info("通知", msg)
 
     def toggle_theme(self):
         """テーマを切り替える（アニメーション付き）"""
@@ -745,7 +1307,7 @@ class Main(QWidget):
         stylesheet = f"""
             QWidget#Main {{ background-color: {bg_color}; }}
             QFrame#Card {{ background-color: {card_color}; border-radius: 24px; border: 1px solid {input_border}; }}
-            QLabel {{ color: {label_color}; font-size: 11px; font-weight: bold; margin-left: 5px; }}
+            QLabel {{ color: {label_color}; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }}
             QLabel#Title {{ color: {title_color}; font-size: 24px; font-weight: 200; margin-left: 0px; }}
             QLineEdit, QComboBox {{ border: 1px solid {input_border}; padding: 10px 12px; border-radius: 10px; background: {input_bg}; color: {input_text}; font-size: 14px; }}
             QLineEdit:focus, QComboBox:focus {{ border: 1px solid {input_border}; border-bottom: 2px solid #0a84ff; }}
@@ -753,6 +1315,8 @@ class Main(QWidget):
             QPushButton {{ background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }}
             QPushButton:hover {{ background-color: #409cff; }}
             QPushButton#SecondaryBtn {{ background-color: {btn_bg}; color: {btn_text}; font-size: 13px; font-weight: normal; }}
+            QLabel#YtDlpStatusLabel {{ color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }}
+            QLabel#AppStatusLabel {{ color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }}
             #SettingsBtn {{ background: transparent; color: {btn_text}; font-size: 13px; }}
             #ThemeBtn {{ background-color: {btn_bg}; color: {btn_text}; font-weight: normal; }}
             QProgressBar {{
@@ -787,6 +1351,7 @@ class Main(QWidget):
         self.btn_theme.setEnabled(True)
 
 if __name__ == "__main__":
+    qInstallMessageHandler(qt_message_filter)
     app = QApplication(sys.argv)
     w = Main()
     w.show()
