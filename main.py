@@ -22,11 +22,16 @@ APP_DISPLAY_NAME = "Sagami youtube Downloader"
 
 def resolve_app_icon_path():
     app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
-    icon_path = app_dir / "app_icon.png"
-    if icon_path.exists():
-        return icon_path
-    fallback = app_dir / "assets" / "app_icon.png"
-    return fallback if fallback.exists() else None
+    candidates = (
+        app_dir / "app_icon.png",
+        app_dir / "Sagami Youtube Downloader.ico",
+        app_dir / "assets" / "app_icon.png",
+        app_dir / "assets" / "app_icon.ico",
+    )
+    for icon_path in candidates:
+        if icon_path.exists():
+            return icon_path
+    return None
 
 def qt_message_filter(_msg_type, _context, message):
     text = str(message or "")

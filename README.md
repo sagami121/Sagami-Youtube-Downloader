@@ -41,7 +41,7 @@ Nuitkaでビルドするのを推奨します
 
 ### Sagami Youtube Downloader.exeをビルド
 ```powershell
-python -m nuitka --standalone --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico=".\\Sagami Youtube Downloader.ico" --output-dir=nuitka_dist --output-filename="Sagami Youtube Downloader.exe" --include-data-file=assets/app_icon.png=app_icon.png --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=config.json=config.json main.py
+python -m nuitka --standalone --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico=".\\Sagami Youtube Downloader.ico" --output-dir=nuitka_dist --output-filename="Sagami Youtube Downloader.exe" --include-data-file=".\\Sagami Youtube Downloader.ico=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=config.json=config.json main.py
 ```
 
 ### Sagami Youtube Updater.exeをビルド
