@@ -1,4 +1,4 @@
-import argparse
+﻿import argparse
 import os
 import subprocess
 import sys
@@ -132,23 +132,40 @@ def detect_installer_kind(installer_path: Path) -> str:
 
 
 def installer_profiles(installer_path: Path, kind: str) -> list[list[str]]:
-    if kind == "msi":
-        return [["msiexec", "/i", str(installer_path), "/qn", "/norestart"]]
-    if kind == "inno":
-        return [
-            [str(installer_path), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/TASKS=desktopicon"],
-            [str(installer_path), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"],
-        ]
-    if kind == "nsis":
-        return [
-            [str(installer_path), "/S"],
-            [str(installer_path), "/S", "/NORESTART"],
-        ]
-    return [
+    generic_profiles = [
         [str(installer_path), "/quiet", "/norestart"],
         [str(installer_path), "/SILENT", "/NORESTART"],
         [str(installer_path), "/S", "/NORESTART"],
+        [str(installer_path), "/S"],
+        [str(installer_path)],
     ]
+    inno_profiles = [
+        [str(installer_path), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/TASKS=desktopicon"],
+        [str(installer_path), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"],
+    ]
+    nsis_profiles = [
+        [str(installer_path), "/S"],
+        [str(installer_path), "/S", "/NORESTART"],
+    ]
+
+    def _unique(cmds: list[list[str]]) -> list[list[str]]:
+        seen = set()
+        result = []
+        for cmd in cmds:
+            key = tuple(cmd)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(cmd)
+        return result
+
+    if kind == "msi":
+        return [["msiexec", "/i", str(installer_path), "/qn", "/norestart"]]
+    if kind == "inno":
+        return _unique(inno_profiles + nsis_profiles + generic_profiles)
+    if kind == "nsis":
+        return _unique(nsis_profiles + inno_profiles + generic_profiles)
+    return _unique(generic_profiles + inno_profiles + nsis_profiles)
 
 
 def run_installer_with_profiles(installer_path: Path) -> tuple[bool, list[dict]]:
@@ -204,20 +221,25 @@ def main():
     parser.add_argument("--install-dir", default="")
     args = parser.parse_args()
 
+    attempts = []
+    installer_path = None
     try:
         wait_for_process_exit(args.current_pid, timeout_sec=120)
         installer_path = download_installer(args.installer_url)
         ok, attempts = run_installer_with_profiles(installer_path)
         if not ok:
-            raise RuntimeError("インストーラーの起動に失敗しました。")
-        installed = verify_installation(args.launch_path, args.install_dir, timeout_sec=180)
+            raise RuntimeError("Installer execution failed.")
+
+        installed = verify_installation(args.launch_path, args.install_dir, timeout_sec=300)
         if not installed:
-            raise RuntimeError("インストール完了を確認できませんでした。")
+            raise RuntimeError("Installation verification failed.")
+
         relaunched = False
         if args.launch_path:
             # Give installer side-effects a moment to settle before relaunch.
             time.sleep(2.0)
             relaunched = relaunch_app(args.launch_path)
+
         write_ini_log(
             "update_started",
             {
@@ -240,9 +262,11 @@ def main():
             "update_error",
             {
                 "installer_url": args.installer_url,
+                "installer_path": str(installer_path) if installer_path else "",
                 "pid_waited": args.current_pid,
                 "launch_path": args.launch_path,
                 "install_dir": args.install_dir,
+                "attempts": json.dumps(attempts, ensure_ascii=False),
                 "rollback_relaunched": rollback,
                 "error": repr(e),
             },
@@ -250,6 +274,6 @@ def main():
         )
         sys.exit(1)
 
-
 if __name__ == "__main__":
     main()
+
