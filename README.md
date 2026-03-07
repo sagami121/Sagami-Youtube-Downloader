@@ -30,44 +30,26 @@
 - エラー時は `logs` フォルダに `txt（ini形式）` のログを出力します  
 - 例: `download_error_YYYYMMDD_HHMMSS.txt`, `update_error_YYYYMMDD_HHMMSS.txt`
 
-## Build (Nuitka)
+## ビルド方法（Nuitka）
+Nuitkaでビルドするのを推奨します
 
-### Prerequisites
+### 事前準備
 - Python 3.13
 - `pip install -r requirements.txt`
 - `pip install nuitka`
-- Visual Studio C++ Build Tools (MSVC)
+- Visual Studio C++ Build Tools（MSVC）
 
-### Build Main App
+### Sagami Youtube Downloader.exeをビルド
 ```powershell
-python -m nuitka `
-  --standalone `
-  --enable-plugin=pyqt6 `
-  --windows-console-mode=disable `
-  --windows-icon-from-ico=assets/app_icon.ico `
-  --output-dir=nuitka_dist `
-  --output-filename="Sagami Youtube Downloader.exe" `
-  --include-data-file=assets/app_icon.png=app_icon.png `
-  --include-data-file=yt-dlp.exe=yt-dlp.exe `
-  --include-data-file=config.json=config.json `
-  main.py
+python -m nuitka --standalone --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico=assets/app_icon.ico --output-dir=nuitka_dist --output-filename="Sagami Youtube Downloader.exe" --include-data-file=assets/app_icon.png=app_icon.png --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=config.json=config.json main.py
 ```
 
-### Build Updater
+### Sagami Youtube Updater.exeをビルド
 ```powershell
-python -m nuitka `
-  --standalone `
-  --windows-console-mode=disable `
-  --windows-icon-from-ico=assets/app_icon.ico `
-  --output-dir=nuitka_dist `
-  --output-filename="Sagami Youtube Updater.exe" `
-  update.py
+python -m nuitka --standalone --windows-console-mode=disable --windows-icon-from-ico=assets/app_icon.ico --output-dir=nuitka_dist --output-filename="Sagami Youtube Updater.exe" update.py
 ```
 
-### Optional: Package Folder
+### 配布用フォルダへまとめる（任意）
 ```powershell
-$pkg = "nuitka_dist\\Sagami Youtube Nuitka Package"
-New-Item -ItemType Directory -Force -Path $pkg | Out-Null
-Copy-Item -Path "nuitka_dist\\main.dist\\*" -Destination $pkg -Recurse -Force
-Copy-Item -Path "nuitka_dist\\update.dist\\Sagami Youtube Updater.exe" -Destination $pkg -Force
+$pkg = "nuitka_dist\\Sagami Youtube Nuitka Package"; New-Item -ItemType Directory -Force -Path $pkg | Out-Null; Copy-Item -Path "nuitka_dist\\main.dist\\*" -Destination $pkg -Recurse -Force; Copy-Item -Path "nuitka_dist\\update.dist\\Sagami Youtube Updater.exe" -Destination $pkg -Force
 ```
