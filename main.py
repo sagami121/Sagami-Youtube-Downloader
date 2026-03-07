@@ -15,10 +15,18 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler
 from PyQt6.QtGui import QFont, QIcon, QDesktopServices
 
-VERSION = "1.2.1"
+VERSION = "1.2.2 beta"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
+
+def resolve_app_icon_path():
+    app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+    icon_path = app_dir / "app_icon.png"
+    if icon_path.exists():
+        return icon_path
+    fallback = app_dir / "assets" / "app_icon.png"
+    return fallback if fallback.exists() else None
 
 def qt_message_filter(_msg_type, _context, message):
     text = str(message or "")
@@ -968,6 +976,9 @@ class Main(QWidget):
         super().__init__()
         self.setObjectName("Main")
         self.setWindowTitle("Sagami Youtube Downloader")
+        icon_path = resolve_app_icon_path()
+        if icon_path:
+            self.setWindowIcon(QIcon(str(icon_path)))
         self.resize(920, 700)
         self.setMinimumSize(720, 600)
         self.cfg = load_config()
@@ -1680,6 +1691,9 @@ class Main(QWidget):
 if __name__ == "__main__":
     qInstallMessageHandler(qt_message_filter)
     app = QApplication(sys.argv)
+    icon_path = resolve_app_icon_path()
+    if icon_path:
+        app.setWindowIcon(QIcon(str(icon_path)))
     w = Main()
     w.show()
     sys.exit(app.exec())

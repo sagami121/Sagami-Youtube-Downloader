@@ -11,6 +11,7 @@ dist/
 build/
 *.spec
 nuitka_dist/
+nuitka-crash-report.xml
 
 # Settings / Config
 config.json
