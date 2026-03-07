@@ -21,6 +21,10 @@ if not exist "ffmpeg.exe" (
   echo [ERROR] ffmpeg.exe not found.
   exit /b 1
 )
+if not exist "ffprobe.exe" (
+  echo [ERROR] ffprobe.exe not found.
+  exit /b 1
+)
 if not exist "language\\ja.json" (
   echo [ERROR] language\\ja.json not found.
   exit /b 1
@@ -35,7 +39,7 @@ if not exist "%ICON_FILE%" (
 )
 
 echo [START] Build main app
-python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico="%ICON_FILE%" --output-dir="%OUTPUT_DIR%" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="%ICON_FILE%=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-dir=language=language main.py
+python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico="%ICON_FILE%" --output-dir="%OUTPUT_DIR%" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="%ICON_FILE%=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language main.py
 if errorlevel 1 (
   echo [ERROR] Build main app failed.
   exit /b 1

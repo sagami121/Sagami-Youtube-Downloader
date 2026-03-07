@@ -205,6 +205,19 @@ def resolve_ffmpeg_command():
             return str(candidate)
     return shutil.which("ffmpeg")
 
+def resolve_ffprobe_command():
+    app_dir = get_runtime_app_dir()
+    candidates = [
+        app_dir / "ffprobe.exe",
+        app_dir / "ffprobe",
+        app_dir / "ffmpeg" / "bin" / "ffprobe.exe",
+        app_dir / "ffmpeg" / "bin" / "ffprobe",
+    ]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return str(candidate)
+    return shutil.which("ffprobe")
+
 def is_ffmpeg_usable(ffmpeg_cmd: str) -> bool:
     if not ffmpeg_cmd:
         return False
@@ -527,7 +540,9 @@ class DownloadThread(QThread):
             self.finished.emit("yt-dlp が見つかりません。")
             return
         ffmpeg_cmd = resolve_ffmpeg_command()
+        ffprobe_cmd = resolve_ffprobe_command()
         ffmpeg_ok = is_ffmpeg_usable(ffmpeg_cmd) if ffmpeg_cmd else False
+        ffprobe_ok = bool(ffprobe_cmd)
 
         args = yt_cmd + [
             self.url, "-P", self.folder, "-o", f"{template}.%(ext)s",
@@ -535,7 +550,7 @@ class DownloadThread(QThread):
             "--progress-template", "download:%(progress._percent_str)s"
         ]
         if ffmpeg_ok:
-            args += ["--ffmpeg-location", str(ffmpeg_cmd)]
+            args += ["--ffmpeg-location", str(Path(ffmpeg_cmd).parent)]
 
         out_format = self.cfg.get("format", "mp4")
         if out_format == "mp3":
@@ -575,14 +590,15 @@ class DownloadThread(QThread):
             if fps and fps != "Any" and str(fps).isdigit():
                 video_selector += f"[fps<={fps}]"
 
-            format_selector = f"{video_selector}+ba/b"
+            # Prefer AAC-compatible audio first to avoid Opus in MP4 outputs.
+            format_selector = f"{video_selector}+ba[acodec*=mp4a]/{video_selector}+ba[ext=m4a]/{video_selector}+ba/b[ext=mp4]/b"
 
             args += ["-f", format_selector,
                      "--format-sort", "res,fps,vcodec:avc",
                      "--merge-output-format", "mp4"]
             
             # MP4の場合、サムネイル埋め込みオプションを追加
-            if self.cfg.get("embed_thumbnail", False):
+            if self.cfg.get("embed_thumbnail", False) and ffprobe_ok:
                 args += ["--write-thumbnail", "--embed-thumbnail"]
 
         start_sec = self.cfg.get("time_range_start")
@@ -641,7 +657,9 @@ class DownloadThread(QThread):
                         "url": self.url,
                         "folder": self.folder,
                         "ffmpeg_cmd": ffmpeg_cmd or "",
+                        "ffprobe_cmd": ffprobe_cmd or "",
                         "ffmpeg_usable": ffmpeg_ok,
+                        "ffprobe_usable": ffprobe_ok,
                         "returncode": self.process.returncode if self.process else "unknown",
                         "command": " ".join(args),
                         "output_tail": "\n".join(output_tail),
@@ -657,7 +675,9 @@ class DownloadThread(QThread):
                     "url": self.url,
                     "folder": self.folder,
                     "ffmpeg_cmd": ffmpeg_cmd or "",
+                    "ffprobe_cmd": ffprobe_cmd or "",
                     "ffmpeg_usable": ffmpeg_ok if "ffmpeg_ok" in locals() else False,
+                    "ffprobe_usable": ffprobe_ok if "ffprobe_ok" in locals() else False,
                     "error": repr(e),
                     "command": " ".join(args) if "args" in locals() else "",
                 },
@@ -1210,6 +1230,9 @@ class Main(QWidget):
         self.cfg = load_config()
         self.is_animating = False  # アニメーション中かどうかを追跡
         self.download_thread = None
+        self.updater = None
+        self.startup_updater = None
+        self.app_updater = None
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -1510,7 +1533,7 @@ class Main(QWidget):
         save_config(self.cfg)
 
     def update_ytdlp(self):
-        if hasattr(self, "updater") and self.updater.isRunning():
+        if self.updater is not None and self.updater.isRunning():
             return
 
         if resolve_yt_dlp_command() is None:
@@ -1527,7 +1550,7 @@ class Main(QWidget):
         if resolve_yt_dlp_command() is None:
             self.set_ytdlp_status("", "not_found")
             return
-        if hasattr(self, "startup_updater") and self.startup_updater.isRunning():
+        if self.startup_updater is not None and self.startup_updater.isRunning():
             return
 
         self.set_ytdlp_status("", "checking")
@@ -1542,7 +1565,7 @@ class Main(QWidget):
         self.start_app_update_check(interactive=True, suppress_latest_popup=False)
 
     def start_app_update_check(self, interactive: bool, suppress_latest_popup: bool = False):
-        if hasattr(self, "app_updater") and self.app_updater.isRunning():
+        if self.app_updater is not None and self.app_updater.isRunning():
             return
 
         source_url = str(self.cfg.get("app_update_source_url", "") or APP_GITHUB_REPO_URL).strip()
@@ -1796,6 +1819,46 @@ class Main(QWidget):
         self.progress_bar.setVisible(False)
         self.progress_bar.setValue(0)
         self._show_info("通知", msg)
+
+    def _stop_thread(self, thread, terminate_process: bool = False, wait_ms: int = 5000) -> bool:
+        if thread is None:
+            return True
+        try:
+            if not thread.isRunning():
+                return True
+        except Exception:
+            return True
+
+        try:
+            thread.requestInterruption()
+        except Exception:
+            pass
+        if terminate_process:
+            try:
+                if hasattr(thread, "process") and thread.process:
+                    thread.process.terminate()
+            except Exception:
+                pass
+        try:
+            thread.quit()
+        except Exception:
+            pass
+        try:
+            return thread.wait(wait_ms)
+        except Exception:
+            return False
+
+    def closeEvent(self, event):
+        ok_download = self._stop_thread(self.download_thread, terminate_process=True, wait_ms=7000)
+        ok_updater = self._stop_thread(self.updater, wait_ms=4000)
+        ok_startup = self._stop_thread(self.startup_updater, wait_ms=4000)
+        ok_app = self._stop_thread(self.app_updater, wait_ms=4000)
+
+        if not (ok_download and ok_updater and ok_startup and ok_app):
+            self._show_warning("終了待機", "バックグラウンド処理の終了待機中です。少し待ってから再度閉じてください。")
+            event.ignore()
+            return
+        event.accept()
 
     def _handle_theme_error(self, phase: str, error: Exception):
         try:
