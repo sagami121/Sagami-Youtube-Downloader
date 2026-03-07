@@ -14,17 +14,31 @@ from urllib.parse import urlparse
 
 
 def write_ini_log(section: str, values: dict, prefix: str = "update") -> str:
-    app_dir = Path(__file__).resolve().parent
-    logs_dir = app_dir / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = logs_dir / f"{prefix}_{ts}.txt"
     lines = [f"[{section}]"]
     for key, value in values.items():
         text = str(value).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n")
         lines.append(f"{key}={text}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return str(path)
+    payload = "\n".join(lines) + "\n"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    app_dir = Path(__file__).resolve().parent
+    appdata = Path(os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+    candidates = [
+        app_dir / "logs",
+        appdata / "SagamiYoutubeDownloader" / "logs",
+        Path(tempfile.gettempdir()) / "SagamiYoutubeDownloader" / "logs",
+    ]
+
+    for logs_dir in candidates:
+        try:
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            path = logs_dir / f"{prefix}_{ts}.txt"
+            path.write_text(payload, encoding="utf-8")
+            return str(path)
+        except Exception:
+            continue
+
+    return ""
 
 
 def wait_for_process_exit(pid: int, timeout_sec: int = 120):

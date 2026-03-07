@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import time
+import traceback
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -20,8 +21,21 @@ CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
 
+def is_packaged_executable() -> bool:
+    if getattr(sys, "frozen", False):
+        return True
+    if "__compiled__" in globals():
+        return True
+    if hasattr(sys, "_MEIPASS"):
+        return True
+    argv0 = sys.argv[0] if sys.argv else ""
+    return Path(argv0).suffix.lower() == ".exe"
+
+def get_runtime_app_dir() -> Path:
+    return Path(sys.executable).parent if is_packaged_executable() else Path(__file__).parent
+
 def resolve_app_icon_path():
-    app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+    app_dir = get_runtime_app_dir()
     candidates = (
         app_dir / "Sagami Youtube Downloader.ico",
     )
@@ -148,7 +162,7 @@ def lerp_color(start_color, end_color, progress):
     return '#{:02x}{:02x}{:02x}'.format(*interpolated)
 
 def get_config_path() -> Path:
-    if getattr(sys, 'frozen', False):
+    if is_packaged_executable():
         # EXEとして実行されている場合はユーザー領域に保存
         base_dir = Path(os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming"))
         cfg_dir = base_dir / CONFIG_DIR_NAME
@@ -161,7 +175,7 @@ def get_config_path() -> Path:
     return app_dir / "config.json"
 
 def resolve_yt_dlp_command():
-    app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+    app_dir = get_runtime_app_dir()
     candidates = [app_dir / "yt-dlp.exe", app_dir / "yt-dlp"]
     for candidate in candidates:
         if candidate.exists() and candidate.is_file():
@@ -171,12 +185,43 @@ def resolve_yt_dlp_command():
     return None
 
 def resolve_aria2c_command():
-    app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+    app_dir = get_runtime_app_dir()
     candidates = [app_dir / "aria2c.exe", app_dir / "aria2c"]
     for candidate in candidates:
         if candidate.exists() and candidate.is_file():
             return str(candidate)
     return shutil.which("aria2c")
+
+def resolve_ffmpeg_command():
+    app_dir = get_runtime_app_dir()
+    candidates = [
+        app_dir / "ffmpeg.exe",
+        app_dir / "ffmpeg",
+        app_dir / "ffmpeg" / "bin" / "ffmpeg.exe",
+        app_dir / "ffmpeg" / "bin" / "ffmpeg",
+    ]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return str(candidate)
+    return shutil.which("ffmpeg")
+
+def is_ffmpeg_usable(ffmpeg_cmd: str) -> bool:
+    if not ffmpeg_cmd:
+        return False
+    try:
+        proc = subprocess.run(
+            [ffmpeg_cmd, "-version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=8,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        return proc.returncode == 0
+    except Exception:
+        return False
 
 def parse_timecode_to_seconds(value: str):
     text = (value or "").strip()
@@ -266,7 +311,7 @@ def extract_latest_changelog_entry(changelog_text: str) -> str:
 
 def read_changelog_latest_entry() -> str:
     try:
-        app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+        app_dir = get_runtime_app_dir()
         changelog_path = app_dir / "changelog.txt"
         if not changelog_path.exists():
             return ""
@@ -373,19 +418,31 @@ def save_config(cfg):
         json.dump(cfg, f, ensure_ascii=False, indent=4)
 
 def write_ini_log(section: str, values: dict, prefix: str = "error") -> str:
-    app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
-    logs_dir = app_dir / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = logs_dir / f"{prefix}_{ts}.txt"
-
     lines = [f"[{section}]"]
     for key, value in values.items():
         text = str(value).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n")
         lines.append(f"{key}={text}")
+    payload = "\n".join(lines) + "\n"
 
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return str(path)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    app_dir = get_runtime_app_dir()
+    candidates = [app_dir / "logs"]
+    try:
+        cfg_base = get_config_path().parent
+        candidates.append(cfg_base / "logs")
+    except Exception:
+        pass
+
+    for logs_dir in candidates:
+        try:
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            path = logs_dir / f"{prefix}_{ts}.txt"
+            path.write_text(payload, encoding="utf-8")
+            return str(path)
+        except Exception:
+            continue
+
+    return ""
 
 class DownloadThread(QThread):
     progress = pyqtSignal(int)
@@ -469,31 +526,48 @@ class DownloadThread(QThread):
         if yt_cmd is None:
             self.finished.emit("yt-dlp が見つかりません。")
             return
+        ffmpeg_cmd = resolve_ffmpeg_command()
+        ffmpeg_ok = is_ffmpeg_usable(ffmpeg_cmd) if ffmpeg_cmd else False
 
         args = yt_cmd + [
             self.url, "-P", self.folder, "-o", f"{template}.%(ext)s",
             "--newline",
             "--progress-template", "download:%(progress._percent_str)s"
         ]
+        if ffmpeg_ok:
+            args += ["--ffmpeg-location", str(ffmpeg_cmd)]
 
         out_format = self.cfg.get("format", "mp4")
         if out_format == "mp3":
+            if not ffmpeg_ok:
+                self.finished.emit("MP3変換には ffmpeg が必要です。ffmpeg.exe をアプリと同じフォルダに配置してください。")
+                return
             # MP3は指定音質で抽出
             audio_quality = str(self.cfg.get("audio_quality", "0")).strip()
             if not re.fullmatch(r"\d+(?:\.\d+)?", audio_quality):
                 audio_quality = "0"
             args += ["-x", "--audio-format", "mp3", "--audio-quality", audio_quality]
         elif out_format == "wav":
+            if not ffmpeg_ok:
+                self.finished.emit("WAV変換には ffmpeg が必要です。ffmpeg.exe をアプリと同じフォルダに配置してください。")
+                return
             # WAVは再エンコード時の品質指定を使わず抽出
             args += ["-x", "--audio-format", "wav"]
         elif out_format == "m4a":
+            if not ffmpeg_ok:
+                self.finished.emit("M4A変換には ffmpeg が必要です。ffmpeg.exe をアプリと同じフォルダに配置してください。")
+                return
             # M4Aは可能な限り再エンコードせず抽出
             args += ["-x", "--audio-format", "m4a"]
         else:
+            if not ffmpeg_ok:
+                self.finished.emit("高画質MP4の結合には ffmpeg が必要です。ffmpeg.exe をアプリと同じフォルダに配置してください。")
+                return
             quality = self.cfg.get("video_quality", "Best")
             fps = self.cfg.get("video_fps", "Any")
 
-            video_selector = "bv*[ext=mp4]"
+            # Prefer highest available video stream first; remux to mp4 at merge stage.
+            video_selector = "bv*"
             if quality and quality != "Best":
                 h = quality.replace("p", "")
                 if h.isdigit():
@@ -501,9 +575,10 @@ class DownloadThread(QThread):
             if fps and fps != "Any" and str(fps).isdigit():
                 video_selector += f"[fps<={fps}]"
 
-            format_selector = f"{video_selector}+ba[ext=m4a]/{video_selector}+ba/{video_selector}/b[ext=mp4]/b"
+            format_selector = f"{video_selector}+ba/b"
 
             args += ["-f", format_selector,
+                     "--format-sort", "res,fps,vcodec:avc",
                      "--merge-output-format", "mp4"]
             
             # MP4の場合、サムネイル埋め込みオプションを追加
@@ -565,6 +640,8 @@ class DownloadThread(QThread):
                     {
                         "url": self.url,
                         "folder": self.folder,
+                        "ffmpeg_cmd": ffmpeg_cmd or "",
+                        "ffmpeg_usable": ffmpeg_ok,
                         "returncode": self.process.returncode if self.process else "unknown",
                         "command": " ".join(args),
                         "output_tail": "\n".join(output_tail),
@@ -579,6 +656,8 @@ class DownloadThread(QThread):
                 {
                     "url": self.url,
                     "folder": self.folder,
+                    "ffmpeg_cmd": ffmpeg_cmd or "",
+                    "ffmpeg_usable": ffmpeg_ok if "ffmpeg_ok" in locals() else False,
                     "error": repr(e),
                     "command": " ".join(args) if "args" in locals() else "",
                 },
@@ -944,13 +1023,26 @@ class Settings(QDialog):
         self.template_display.setText(new_text)
 
     def save(self):
-        self.cfg["language"] = self.lang_combo.currentData() or "ja"
-        self.cfg["format"] = self.format_combo.currentData() or "mp4"
-        self.cfg["template"] = self.template_display.text() or "%(title)s"
-        self.cfg["path"] = self.parent_win.path_display.text()
-        self.cfg["embed_thumbnail"] = self.chk_thumbnail.isChecked()
-        save_config(self.cfg)
-        self.accept()
+        try:
+            self.cfg["language"] = self.lang_combo.currentData() or "ja"
+            self.cfg["format"] = self.format_combo.currentData() or "mp4"
+            self.cfg["template"] = self.template_display.text() or "%(title)s"
+            self.cfg["path"] = self.parent_win.path_display.text()
+            self.cfg["embed_thumbnail"] = self.chk_thumbnail.isChecked()
+            save_config(self.cfg)
+            self.accept()
+        except Exception as e:
+            log_path = write_ini_log(
+                "settings_save_exception",
+                {"error": repr(e), "traceback": traceback.format_exc()},
+                prefix="settings_save_exception",
+            )
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("エラー")
+            suffix = f"\nログ: {log_path}" if log_path else ""
+            msg.setText(f"設定の保存に失敗しました。{suffix}")
+            msg.exec()
 
 
 class LogViewerDialog(QDialog):
@@ -1024,6 +1116,26 @@ class Main(QWidget):
 
     def t(self, key: str, default: str) -> str:
         return i18n(self.cfg, key, default)
+
+    def _safe_call(self, action: str, func, *args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            log_path = write_ini_log(
+                "ui_action_exception",
+                {
+                    "action": action,
+                    "error": repr(e),
+                    "traceback": traceback.format_exc(),
+                },
+                prefix="ui_action_exception",
+            )
+            try:
+                suffix = f"\nログ: {log_path}" if log_path else ""
+                self._show_warning("エラー", f"操作中にエラーが発生しました。\n{action}{suffix}")
+            except Exception:
+                pass
+            return None
 
     def theme_button_text(self, theme_name: str) -> str:
         if theme_name == "dark":
@@ -1146,7 +1258,7 @@ class Main(QWidget):
         self.btn_paste.setFixedWidth(90)
         self.btn_paste.setMinimumHeight(38)
         self.btn_paste.setObjectName("SecondaryBtn")
-        self.btn_paste.clicked.connect(self.paste_url)
+        self.btn_paste.clicked.connect(lambda: self._safe_call("paste_url", self.paste_url))
         url_layout.addWidget(self.url)
         url_layout.addWidget(self.btn_paste)
         card_layout.addLayout(url_layout)
@@ -1175,7 +1287,7 @@ class Main(QWidget):
         self.btn_browse.setFixedWidth(80)
         self.btn_browse.setMinimumHeight(38)
         self.btn_browse.setObjectName("SecondaryBtn")
-        self.btn_browse.clicked.connect(self.browse_folder)
+        self.btn_browse.clicked.connect(lambda: self._safe_call("browse_folder", self.browse_folder))
         
         path_layout.addWidget(self.path_display)
         path_layout.addWidget(self.btn_browse)
@@ -1215,9 +1327,9 @@ class Main(QWidget):
         mp4_opts_layout.addWidget(self.audio_quality_combo)
         card_layout.addLayout(mp4_opts_layout)
 
-        self.quality_combo.currentTextChanged.connect(self.on_video_quality_changed)
-        self.fps_combo.currentIndexChanged.connect(self.on_video_fps_changed)
-        self.audio_quality_combo.currentIndexChanged.connect(self.on_audio_quality_changed)
+        self.quality_combo.currentTextChanged.connect(lambda value: self._safe_call("on_video_quality_changed", self.on_video_quality_changed, value))
+        self.fps_combo.currentIndexChanged.connect(lambda *_: self._safe_call("on_video_fps_changed", self.on_video_fps_changed))
+        self.audio_quality_combo.currentIndexChanged.connect(lambda *_: self._safe_call("on_audio_quality_changed", self.on_audio_quality_changed))
         self.update_mp4_option_state()
 
         actions_layout = QHBoxLayout()
@@ -1225,19 +1337,19 @@ class Main(QWidget):
 
         self.btn_dl = QPushButton("ダウンロードを開始")
         self.btn_dl.setMinimumHeight(46)
-        self.btn_dl.clicked.connect(self.start)
+        self.btn_dl.clicked.connect(lambda: self._safe_call("start_download", self.start))
         actions_layout.addWidget(self.btn_dl, 1)
 
         self.btn_update_ytdlp = QPushButton("yt-dlp を更新")
         self.btn_update_ytdlp.setObjectName("SecondaryBtn")
         self.btn_update_ytdlp.setMinimumHeight(46)
-        self.btn_update_ytdlp.clicked.connect(self.update_ytdlp)
+        self.btn_update_ytdlp.clicked.connect(lambda: self._safe_call("update_ytdlp", self.update_ytdlp))
         self.btn_update_ytdlp.setVisible(False)
 
         self.btn_check_app_update = QPushButton("アプリ更新を確認")
         self.btn_check_app_update.setObjectName("SecondaryBtn")
         self.btn_check_app_update.setMinimumHeight(46)
-        self.btn_check_app_update.clicked.connect(self.check_app_update_manually)
+        self.btn_check_app_update.clicked.connect(lambda: self._safe_call("check_app_update_manually", self.check_app_update_manually))
         self.btn_check_app_update.setVisible(False)
         actions_layout.addWidget(self.btn_check_app_update)
 
@@ -1272,7 +1384,7 @@ class Main(QWidget):
         foot_actions.addStretch()
         self.btn_settings = QPushButton("詳細設定")
         self.btn_settings.setObjectName("SettingsBtn")
-        self.btn_settings.clicked.connect(self.open_settings)
+        self.btn_settings.clicked.connect(lambda: self._safe_call("open_settings", self.open_settings))
         foot_actions.addWidget(self.btn_settings)
         foot_actions.addStretch()
         card_layout.addLayout(foot_actions)
@@ -1344,7 +1456,13 @@ class Main(QWidget):
                 self._show_info("Language", "Language setting updated.")
 
     def paste_url(self):
-        self.url.setText(QApplication.clipboard().text())
+        raw = (QApplication.clipboard().text() or "").strip()
+        if raw.lower().startswith("ttps://"):
+            raw = "h" + raw
+        elif raw.lower().startswith("ps://"):
+            raw = "htt" + raw
+        self.url.setText(raw)
+        self.url.setCursorPosition(0)
 
     def on_video_quality_changed(self, value):
         self.cfg["video_quality"] = value
@@ -1460,7 +1578,7 @@ class Main(QWidget):
         updater_exe_path = next((p for p in updater_candidates if p.exists()), updater_candidates[0])
 
         try:
-            launch_path = sys.executable if getattr(sys, "frozen", False) else str((app_dir / "main.py").resolve())
+            launch_path = sys.executable if is_packaged_executable() else str((app_dir / "main.py").resolve())
             if not updater_exe_path.exists():
                 tried = "\n".join(str(p) for p in updater_candidates)
                 self._show_warning("更新", f"Updater が見つかりません。\n確認パス:\n{tried}")
@@ -1610,6 +1728,12 @@ class Main(QWidget):
             return
 
         url = self.url.text().strip()
+        if url.lower().startswith("ttps://"):
+            url = "h" + url
+            self.url.setText(url)
+        elif url.lower().startswith("ps://"):
+            url = "htt" + url
+            self.url.setText(url)
         if not url:
             self._show_warning("入力エラー", "YouTube URLを入力してください。")
             return

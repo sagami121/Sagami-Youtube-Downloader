@@ -32,7 +32,6 @@ logs/
 *.log
 
 # バイナリ / 実行ファイル
-*.exe
 *.dll
 *.so
 *.dylib
