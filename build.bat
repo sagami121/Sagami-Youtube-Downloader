@@ -25,13 +25,21 @@ if not exist "config.json" (
   echo [ERROR] config.json not found.
   exit /b 1
 )
+if not exist "language\\ja.json" (
+  echo [ERROR] language\\ja.json not found.
+  exit /b 1
+)
+if not exist "language\\en.json" (
+  echo [ERROR] language\\en.json not found.
+  exit /b 1
+)
 if not exist "%ICON_FILE%" (
   echo [ERROR] %ICON_FILE% not found.
   exit /b 1
 )
 
 echo [START] Build main app
-python -m nuitka --standalone --disable-cache=all --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico="%ICON_FILE%" --output-dir="%OUTPUT_DIR%" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="%ICON_FILE%=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=config.json=config.json main.py
+python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico="%ICON_FILE%" --output-dir="%OUTPUT_DIR%" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="%ICON_FILE%=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=config.json=config.json --include-data-dir=language=language main.py
 if errorlevel 1 (
   echo [ERROR] Build main app failed.
   exit /b 1
@@ -39,7 +47,7 @@ if errorlevel 1 (
 echo [DONE] Build main app
 
 echo [START] Build updater
-python -m nuitka --standalone --disable-cache=all --windows-console-mode=disable --windows-icon-from-ico="%ICON_FILE%" --output-dir="%OUTPUT_DIR%" --output-filename="Sagami Youtube Updater.exe" update.py
+python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico="%ICON_FILE%" --output-dir="%OUTPUT_DIR%" --output-filename="Sagami Youtube Updater.exe" update.py
 if errorlevel 1 (
   echo [ERROR] Build updater failed.
   exit /b 1

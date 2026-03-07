@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler
 from PyQt6.QtGui import QFont, QIcon, QDesktopServices
 
-VERSION = "1.2.2 beta"
+VERSION = "1.3"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
@@ -23,10 +23,7 @@ APP_DISPLAY_NAME = "Sagami youtube Downloader"
 def resolve_app_icon_path():
     app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
     candidates = (
-        app_dir / "app_icon.png",
         app_dir / "Sagami Youtube Downloader.ico",
-        app_dir / "assets" / "app_icon.png",
-        app_dir / "assets" / "app_icon.ico",
     )
     for icon_path in candidates:
         if icon_path.exists():
@@ -287,6 +284,38 @@ def format_release_date(iso_text: str) -> str:
         return ""
     return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
 
+_LANG_CACHE = {}
+
+def load_language_dict(lang_code: str) -> dict:
+    code = (lang_code or "ja").strip().lower()
+    if code in _LANG_CACHE:
+        return _LANG_CACHE[code]
+
+    app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+    lang_dir = app_dir / "language"
+    lang_file = lang_dir / f"{code}.json"
+    fallback_file = lang_dir / "ja.json"
+
+    data = {}
+    try:
+        if lang_file.exists():
+            data = json.loads(lang_file.read_text(encoding="utf-8-sig"))
+        elif fallback_file.exists():
+            data = json.loads(fallback_file.read_text(encoding="utf-8-sig"))
+    except Exception:
+        data = {}
+
+    if not isinstance(data, dict):
+        data = {}
+    _LANG_CACHE[code] = data
+    return data
+
+def i18n(cfg: dict, key: str, default: str) -> str:
+    lang_code = str((cfg or {}).get("language", "ja"))
+    data = load_language_dict(lang_code)
+    value = data.get(key, default)
+    return str(value) if value is not None else default
+
 
 def load_config():
     default_path = ""
@@ -301,6 +330,8 @@ def load_config():
                 cfg["path"] = default_path
             if "theme" not in cfg:
                 cfg["theme"] = "dark"
+            if "language" not in cfg:
+                cfg["language"] = "ja"
             if "embed_thumbnail" not in cfg:
                 cfg["embed_thumbnail"] = False
             if "video_quality" not in cfg:
@@ -320,6 +351,7 @@ def load_config():
             "template": "%(title)s",
             "path": default_path,
             "theme": "dark",
+            "language": "ja",
             "embed_thumbnail": False,
             "video_quality": "Best",
             "video_fps": "Any",
@@ -819,58 +851,67 @@ class Settings(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent_win = parent
-        self.setWindowTitle("出力設定")
-        self.setFixedSize(420, 560)
-        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, False)
         self.cfg = load_config()
-        
-        # ダイアログを親ウィンドウの中央に配置するように設定
+        self.setWindowTitle(i18n(self.cfg, "settings.window_title", "出力設定"))
+        self.resize(460, 640)
+        self.setMinimumSize(420, 560)
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, False)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(15)
+        layout.setSpacing(12)
 
-        layout.addWidget(QLabel("保存ファイル名の構成を選択してください"))
-        
-        layout.addWidget(QLabel("出力形式"))
+        layout.addWidget(QLabel(i18n(self.cfg, "settings.language_label", "言語 / Language")))
+        self.lang_combo = QComboBox()
+        self.lang_combo.addItem(i18n(self.cfg, "settings.lang_ja", "日本語"), "ja")
+        self.lang_combo.addItem("English", "en")
+        lang_idx = self.lang_combo.findData(str(self.cfg.get("language", "ja")))
+        self.lang_combo.setCurrentIndex(lang_idx if lang_idx >= 0 else 0)
+        self.lang_combo.setMinimumHeight(40)
+        layout.addWidget(self.lang_combo)
+
+        layout.addWidget(QLabel(i18n(self.cfg, "settings.choose_template_hint", "保存ファイル名の構成を選択してください")))
+        layout.addWidget(QLabel(i18n(self.cfg, "settings.output_format", "出力形式")))
         self.format_combo = QComboBox()
         self.format_combo.addItem("Video (mp4)", "mp4")
         self.format_combo.addItem("Audio (mp3)", "mp3")
         self.format_combo.addItem("Audio (wav)", "wav")
         self.format_combo.addItem("Audio (m4a)", "m4a")
-        self.format_combo.setMinimumHeight(45)
+        self.format_combo.setMinimumHeight(40)
         fmt_idx = self.format_combo.findData(str(self.cfg.get("format", "mp4")))
         self.format_combo.setCurrentIndex(fmt_idx if fmt_idx >= 0 else 0)
         layout.addWidget(self.format_combo)
 
-        # サムネイル埋め込み設定
-        layout.addWidget(QLabel("その他の設定"))
+        layout.addWidget(QLabel(i18n(self.cfg, "settings.other", "その他の設定")))
         thumbnail_layout = QHBoxLayout()
-        self.chk_thumbnail = QCheckBox("MP4に動画のサムネイルを埋め込む")
+        self.chk_thumbnail = QCheckBox(i18n(self.cfg, "settings.embed_thumbnail", "MP4に動画のサムネイルを埋め込む"))
         self.chk_thumbnail.setChecked(self.cfg.get("embed_thumbnail", False))
         thumbnail_layout.addWidget(self.chk_thumbnail)
         layout.addLayout(thumbnail_layout)
 
-        layout.addWidget(QLabel("現在のファイル名構成"))
+        layout.addWidget(QLabel(i18n(self.cfg, "settings.current_template", "現在のファイル名構成")))
         self.template_display = QLineEdit()
         self.template_display.setText(self.cfg.get("template", "%(title)s"))
         layout.addWidget(self.template_display)
 
-        layout.addWidget(QLabel("ファイル名の設定"))
+        layout.addWidget(QLabel(i18n(self.cfg, "settings.filename_tags", "ファイル名の設定")))
         tag_layout = QGridLayout()
         tag_layout.setContentsMargins(0, 0, 0, 0)
         tag_layout.setHorizontalSpacing(14)
         tag_layout.setVerticalSpacing(10)
         tags = [
-            ("タイトル", "%(title)s"), ("動画ID", "[%(id)s]"), 
-            ("投稿者", "[%(uploader)s]"), ("投稿日", "[%(upload_date)s]"),
-            ("画質", "[%(height)sp]"), ("クリア", "clear")
+            (i18n(self.cfg, "settings.tag_title", "タイトル"), "%(title)s"),
+            (i18n(self.cfg, "settings.tag_id", "動画ID"), "[%(id)s]"),
+            (i18n(self.cfg, "settings.tag_uploader", "投稿者"), "[%(uploader)s]"),
+            (i18n(self.cfg, "settings.tag_date", "投稿日"), "[%(upload_date)s]"),
+            (i18n(self.cfg, "settings.tag_quality", "画質"), "[%(height)sp]"),
+            (i18n(self.cfg, "settings.tag_clear", "クリア"), "clear"),
         ]
 
         for i, (label, code) in enumerate(tags):
             btn = QPushButton(label)
-            btn.setMinimumHeight(36) 
+            btn.setMinimumHeight(34)
             if code == "clear":
                 btn.clicked.connect(lambda: self.template_display.clear())
                 btn.setObjectName("ClearBtn")
@@ -879,20 +920,19 @@ class Settings(QDialog):
             tag_layout.addWidget(btn, i // 3, i % 3)
         layout.addLayout(tag_layout)
 
-        layout.addSpacing(10)
-        save_btn = QPushButton("設定を保存")
+        layout.addSpacing(8)
+        save_btn = QPushButton(i18n(self.cfg, "settings.save", "設定を保存"))
         save_btn.setObjectName("SaveBtn")
-        save_btn.setMinimumHeight(50)
+        save_btn.setMinimumHeight(46)
         save_btn.clicked.connect(self.save)
         layout.addWidget(save_btn)
-        
-        # バージョン情報
-        layout.addSpacing(15)
+
+        layout.addSpacing(10)
         version_label = QLabel(f"Version: {VERSION}")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         version_label.setStyleSheet("color: #8e8e93; font-size: 10px;")
         layout.addWidget(version_label)
-        
+
         self.apply_style()
 
     def apply_style(self):
@@ -904,6 +944,7 @@ class Settings(QDialog):
         self.template_display.setText(new_text)
 
     def save(self):
+        self.cfg["language"] = self.lang_combo.currentData() or "ja"
         self.cfg["format"] = self.format_combo.currentData() or "mp4"
         self.cfg["template"] = self.template_display.text() or "%(title)s"
         self.cfg["path"] = self.parent_win.path_display.text()
@@ -978,6 +1019,73 @@ class LogViewerDialog(QDialog):
 
 
 class Main(QWidget):
+    def is_english(self) -> bool:
+        return str(self.cfg.get("language", "ja")).lower().startswith("en")
+
+    def t(self, key: str, default: str) -> str:
+        return i18n(self.cfg, key, default)
+
+    def theme_button_text(self, theme_name: str) -> str:
+        if theme_name == "dark":
+            return self.t("main.theme_dark", "Dark Mode")
+        return self.t("main.theme_light", "Light Mode")
+
+    def apply_language_texts(self):
+        self.btn_theme.setText(self.theme_button_text(self.cfg.get("theme", "dark")))
+        self.lbl_url.setText(self.t("main.video_url", "Video URL"))
+        self.lbl_time.setText(self.t("main.time_range", "Time Range"))
+        self.lbl_folder.setText(self.t("main.output_folder", "Output Folder"))
+        self.url.setPlaceholderText(self.t("main.url_placeholder", "Paste link here..."))
+        self.time_range.setPlaceholderText(self.t("main.time_placeholder", "e.g. 0:00~0:15"))
+        self.btn_paste.setText(self.t("main.paste", "Paste"))
+        self.btn_browse.setText(self.t("main.browse", "Browse"))
+        self.btn_dl.setText(self.t("main.start_download", "Start Download"))
+        self.btn_update_ytdlp.setText(self.t("main.update_ytdlp", "Update yt-dlp"))
+        self.btn_check_app_update.setText(self.t("main.check_app_update", "Check App Update"))
+        self.btn_settings.setText(self.t("main.settings", "Settings"))
+        self.media_quality_label.setText(self.t("main.video_quality", "Video Quality"))
+        self.set_ytdlp_status(self.ytdlp_version, self.ytdlp_state)
+        self.set_app_status(self.app_state, self.app_current_version, self.app_latest_version)
+
+    def set_app_status(self, state: str, current_version: str = "", latest_version: str = ""):
+        self.app_state = state or "pending"
+        if current_version:
+            self.app_current_version = current_version
+        if latest_version:
+            self.app_latest_version = latest_version
+        if not hasattr(self, "app_status_label"):
+            return
+
+        if self.app_state == "checking":
+            text = self.t("status.app_checking", "{app} - {version} Checking...").format(app=APP_DISPLAY_NAME, version=VERSION)
+        elif self.app_state == "failed":
+            ver = self.app_latest_version or self.app_current_version or VERSION
+            text = self.t("status.app_failed", "{app} - {version} Check failed").format(app=APP_DISPLAY_NAME, version=ver)
+        elif self.app_state == "update_available":
+            text = self.t("status.app_update_available", "{app} - {current}->{latest} Update available").format(
+                app=APP_DISPLAY_NAME,
+                current=self.app_current_version or VERSION,
+                latest=self.app_latest_version or self.app_current_version or VERSION,
+            )
+        elif self.app_state == "source_not_set":
+            text = self.t("status.app_source_not_set", "{app} - Update source URL not set").format(app=APP_DISPLAY_NAME)
+        elif self.app_state == "up_to_date":
+            ver = self.app_current_version or VERSION
+            text = self.t("status.app_up_to_date", "{app} - {version} Up to date").format(app=APP_DISPLAY_NAME, version=ver)
+        else:
+            text = self.t("status.app_pending", "{app} - {version} Pending check").format(app=APP_DISPLAY_NAME, version=VERSION)
+        self.app_status_label.setText(text)
+
+    def _pick_known_version(self, after_version: str, before_version: str) -> str:
+        unknown_values = {"", "不明", "unknown", self.t("common.unknown", "Unknown").lower()}
+        a = (after_version or "").strip()
+        b = (before_version or "").strip()
+        if a and a.lower() not in unknown_values:
+            return a
+        if b and b.lower() not in unknown_values:
+            return b
+        return self.t("common.unknown", "Unknown")
+
     def __init__(self):
         super().__init__()
         self.setObjectName("Main")
@@ -997,7 +1105,7 @@ class Main(QWidget):
         top_bar = QHBoxLayout()
         top_bar.setContentsMargins(20, 10, 20, 10)
         top_bar.addStretch()
-        self.btn_theme = QPushButton("ダークモード" if self.cfg.get("theme", "dark") == "dark" else "ライトモード")
+        self.btn_theme = QPushButton(self.theme_button_text(self.cfg.get("theme", "dark")))
         self.btn_theme.setObjectName("ThemeBtn")
         self.btn_theme.setFixedWidth(150)
         self.btn_theme.setMinimumHeight(35)
@@ -1026,7 +1134,8 @@ class Main(QWidget):
         card_layout.addWidget(title)
 
         # URL入力
-        card_layout.addWidget(QLabel("動画URL"))
+        self.lbl_url = QLabel("動画URL")
+        card_layout.addWidget(self.lbl_url)
         url_layout = QHBoxLayout()
         url_layout.setSpacing(8)
         self.url = FocusClearLineEdit()
@@ -1041,7 +1150,8 @@ class Main(QWidget):
         url_layout.addWidget(self.btn_paste)
         card_layout.addLayout(url_layout)
 
-        card_layout.addWidget(QLabel("時間指定"))
+        self.lbl_time = QLabel("時間指定")
+        card_layout.addWidget(self.lbl_time)
         self.time_range = FocusClearLineEdit()
         self.time_range.setPlaceholderText("例: 0:00~0:15")
         self.time_range.setText(self.cfg.get("time_range_input", ""))
@@ -1049,7 +1159,8 @@ class Main(QWidget):
         card_layout.addWidget(self.time_range)
 
         # 保存先
-        card_layout.addWidget(QLabel("保存先フォルダ"))
+        self.lbl_folder = QLabel("保存先フォルダ")
+        card_layout.addWidget(self.lbl_folder)
         path_layout = QHBoxLayout()
         path_layout.setSpacing(8)
         self.path_display = FocusClearLineEdit()
@@ -1140,6 +1251,11 @@ class Main(QWidget):
         self.app_status_label.setObjectName("AppStatusLabel")
         self.app_status_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         card_layout.addWidget(self.app_status_label)
+        self.ytdlp_state = "pending"
+        self.ytdlp_version = self.t("common.unknown", "Unknown")
+        self.app_state = "pending"
+        self.app_current_version = VERSION
+        self.app_latest_version = VERSION
 
         # 進捗バー
         self.progress_bar = QProgressBar()
@@ -1165,6 +1281,7 @@ class Main(QWidget):
         main_layout.addLayout(center_layout)
         main_layout.addStretch()
 
+        self.apply_language_texts()
         self.apply_style()
         QTimer.singleShot(700, self.check_app_update_on_startup)
         QTimer.singleShot(1200, self.check_ytdlp_on_startup)
@@ -1216,10 +1333,14 @@ class Main(QWidget):
         box.exec()
 
     def open_settings(self):
+        prev_lang = str(self.cfg.get("language", "ja"))
         dlg = Settings(self)
         if dlg.exec():
             self.cfg = load_config()
             self.update_mp4_option_state()
+            self.apply_language_texts()
+            if str(self.cfg.get("language", "ja")) != prev_lang:
+                self._show_info("Language", "Language setting updated.")
 
     def paste_url(self):
         self.url.setText(QApplication.clipboard().text())
@@ -1238,7 +1359,7 @@ class Main(QWidget):
 
     def update_mp4_option_state(self):
         is_mp4 = self.cfg.get("format", "mp4") == "mp4"
-        self.media_quality_label.setText("画質設定" if is_mp4 else "音質設定")
+        self.media_quality_label.setText(self.t("main.video_quality", "Video Quality") if is_mp4 else self.t("main.audio_quality", "Audio Quality"))
 
         self.quality_combo.setVisible(is_mp4)
         self.fps_combo.setVisible(is_mp4)
@@ -1285,12 +1406,12 @@ class Main(QWidget):
 
     def check_ytdlp_on_startup(self):
         if resolve_yt_dlp_command() is None:
-            self.set_ytdlp_status("不明", "failed")
+            self.set_ytdlp_status("", "not_found")
             return
         if hasattr(self, "startup_updater") and self.startup_updater.isRunning():
             return
 
-        self.ytdlp_status_label.setText("yt-dlp - 確認中...")
+        self.set_ytdlp_status("", "checking")
         self.startup_updater = YtDlpUpdateThread()
         self.startup_updater.finished.connect(self.on_startup_ytdlp_updated)
         self.startup_updater.start()
@@ -1307,14 +1428,14 @@ class Main(QWidget):
 
         source_url = str(self.cfg.get("app_update_source_url", "") or APP_GITHUB_REPO_URL).strip()
         if not source_url:
-            self.app_status_label.setText(f"{APP_DISPLAY_NAME} - {VERSION} 更新元URL未設定")
+            self.set_app_status("source_not_set", VERSION, VERSION)
             if interactive:
                 self._show_info("アプリ更新", "GitHubリポジトリURLが未設定です。\nconfig.json の app_update_source_url にURLを設定してください。")
             return
 
         self.btn_check_app_update.setEnabled(False)
         self.btn_check_app_update.setText("確認中...")
-        self.app_status_label.setText(f"{APP_DISPLAY_NAME} - {VERSION} 確認中...")
+        self.set_app_status("checking", VERSION, VERSION)
         self.app_updater = AppUpdateThread(source_url)
         self.app_updater.finished.connect(
             lambda ok, state, current, latest, page_url, notes, published_at, installer_url:
@@ -1378,14 +1499,14 @@ class Main(QWidget):
         version_display = latest_version or current_version
 
         if not ok:
-            self.app_status_label.setText(f"{APP_DISPLAY_NAME} - {version_display} 確認失敗")
+            self.set_app_status("failed", version_display, version_display)
             if interactive:
                 reason = (notes or "").strip() or "不明なエラー"
                 self._show_warning("更新", f"更新確認に失敗しました。\n\n理由: {reason}")
             return
 
         if state == "update_available":
-            self.app_status_label.setText(f"{APP_DISPLAY_NAME} - {current_version}→{latest_version} 更新あり")
+            self.set_app_status("update_available", current_version, latest_version)
             notes_text = notes or "更新内容は取得できませんでした。"
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Information)
@@ -1409,7 +1530,7 @@ class Main(QWidget):
                 QDesktopServices.openUrl(QUrl(release_page_url))
             return
 
-        self.app_status_label.setText(f"{APP_DISPLAY_NAME} - {current_version} 最新版です")
+        self.set_app_status("up_to_date", current_version, current_version)
         if interactive and not suppress_latest_popup:
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Information)
@@ -1423,17 +1544,31 @@ class Main(QWidget):
         if not hasattr(self, "ytdlp_status_label"):
             return
 
-        version = (version or "不明").strip()
-        if state == "up_to_date":
-            self.ytdlp_status_label.setText(f"yt-dlp - {version} 最新版です")
+        version = (version or "").strip()
+        self.ytdlp_version = version or self.t("common.unknown", "Unknown")
+        self.ytdlp_state = state or "pending"
+        if state == "pending":
+            self.ytdlp_status_label.setText(self.t("status.ytdlp_pending", "yt-dlp - Pending check"))
+        elif state == "checking":
+            self.ytdlp_status_label.setText(self.t("status.ytdlp_checking", "yt-dlp - Checking..."))
+        elif state == "not_found":
+            self.ytdlp_status_label.setText(self.t("status.ytdlp_not_found", "yt-dlp - Not found"))
+        elif state == "up_to_date":
+            if not version:
+                version = self.t("common.unknown", "Unknown")
+            self.ytdlp_status_label.setText(self.t("status.ytdlp_up_to_date", "yt-dlp - {version} Up to date").format(version=version))
         elif state == "updated":
-            self.ytdlp_status_label.setText(f"yt-dlp - {version} 更新しました")
+            if not version:
+                version = self.t("common.unknown", "Unknown")
+            self.ytdlp_status_label.setText(self.t("status.ytdlp_updated", "yt-dlp - {version} Updated").format(version=version))
         else:
-            self.ytdlp_status_label.setText(f"yt-dlp - {version} 確認失敗")
+            if not version:
+                version = self.t("common.unknown", "Unknown")
+            self.ytdlp_status_label.setText(self.t("status.ytdlp_failed", "yt-dlp - {version} Check failed").format(version=version))
 
         self.ytdlp_status_label.setVisible(True)
     def on_startup_ytdlp_updated(self, ok: bool, state: str, before_version: str, after_version: str, output: str):
-        status_version = after_version if after_version != "不明" else before_version
+        status_version = self._pick_known_version(after_version, before_version)
         self.set_ytdlp_status(status_version, state if ok else "failed")
         if ok:
             return
@@ -1447,13 +1582,13 @@ class Main(QWidget):
             },
             prefix="ytdlp_update_startup_failed",
         )
-        self.ytdlp_status_label.setText(f"yt-dlp - {status_version} 確認失敗 (ログ: {Path(log_path).name})")
+        self.ytdlp_status_label.setText(self.t("status.ytdlp_failed_with_log", "yt-dlp - {version} Check failed (log: {log})").format(version=status_version, log=Path(log_path).name))
 
     def on_ytdlp_updated(self, ok: bool, state: str, before_version: str, after_version: str, output: str):
         self.btn_update_ytdlp.setEnabled(True)
         self.btn_update_ytdlp.setText("yt-dlp を更新")
         body = tail_text(output)
-        status_version = after_version if after_version != "不明" else before_version
+        status_version = self._pick_known_version(after_version, before_version)
         self.set_ytdlp_status(status_version, state if ok else "failed")
         if ok and state == "up_to_date":
             message = "yt-dlp は最新です。"
@@ -1685,10 +1820,11 @@ class Main(QWidget):
         save_config(self.cfg)
         
         # ボタンテキストを更新
-        self.btn_theme.setText("ダークモード" if new_theme == "dark" else "ライトモード")
+        self.btn_theme.setText(self.theme_button_text(new_theme))
         
         # 完全なスタイルを再適用
         self.apply_style()
+        self.apply_language_texts()
         
         # アニメーション中フラグを解除
         self.is_animating = False
