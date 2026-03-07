@@ -1295,29 +1295,39 @@ class Main(QWidget):
 
     def _launch_background_update(self, installer_url: str, release_page_url: str):
         app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+        updater_exe_path = app_dir / "Sagami Youtube Updater.exe"
         updater_path = app_dir / "update.py"
-        if not updater_path.exists():
-            self._show_warning("更新", f"update.py が見つかりません: {updater_path}")
-            if release_page_url:
-                QDesktopServices.openUrl(QUrl(release_page_url))
-            return
-
-        python_cmd = sys.executable if not getattr(sys, "frozen", False) else (shutil.which("pythonw") or shutil.which("python"))
-        if not python_cmd:
-            self._show_warning("更新", "Python実行環境が見つからないため自動更新を開始できません。")
-            if release_page_url:
-                QDesktopServices.openUrl(QUrl(release_page_url))
-            return
 
         try:
             launch_path = sys.executable if getattr(sys, "frozen", False) else str((app_dir / "main.py").resolve())
-            subprocess.Popen(
-                [
+            if getattr(sys, "frozen", False):
+                if not updater_exe_path.exists():
+                    self._show_warning("更新", f"Updater が見つかりません: {updater_exe_path}")
+                    if release_page_url:
+                        QDesktopServices.openUrl(QUrl(release_page_url))
+                    return
+                cmd = [
+                    str(updater_exe_path),
+                    "--installer-url", installer_url,
+                    "--current-pid", str(os.getpid()),
+                    "--launch-path", launch_path,
+                ]
+            else:
+                if not updater_path.exists():
+                    self._show_warning("更新", f"update.py が見つかりません: {updater_path}")
+                    if release_page_url:
+                        QDesktopServices.openUrl(QUrl(release_page_url))
+                    return
+                python_cmd = sys.executable
+                cmd = [
                     python_cmd, str(updater_path),
                     "--installer-url", installer_url,
                     "--current-pid", str(os.getpid()),
                     "--launch-path", launch_path,
-                ],
+                ]
+
+            subprocess.Popen(
+                cmd,
                 cwd=str(app_dir),
                 creationflags=(subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS) if os.name == "nt" else 0
             )
