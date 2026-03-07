@@ -53,3 +53,4 @@ python -m nuitka --standalone --windows-console-mode=disable --windows-icon-from
 ```powershell
 $pkg = "nuitka_dist\\Sagami Youtube Nuitka Package"; New-Item -ItemType Directory -Force -Path $pkg | Out-Null; Copy-Item -Path "nuitka_dist\\main.dist\\*" -Destination $pkg -Recurse -Force; Copy-Item -Path "nuitka_dist\\update.dist\\Sagami Youtube Updater.exe" -Destination $pkg -Force
 ```
+
