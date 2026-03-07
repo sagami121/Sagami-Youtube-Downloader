@@ -106,6 +106,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QPushButton { background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }
             QPushButton:hover { background-color: #409cff; }
             QPushButton#SecondaryBtn { background-color: #3a3a3c; font-size: 13px; font-weight: normal; }
+            QLabel#YtDlpStatusLabel { color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }
             QLabel#AppStatusLabel { color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }
             #SettingsBtn { background: transparent; color: #ffffff; font-size: 13px; }
             #ThemeBtn { background-color: #3a3a3c; color: #ffffff; font-weight: normal; }

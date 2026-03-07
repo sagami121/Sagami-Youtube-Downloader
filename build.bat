@@ -6,6 +6,8 @@ cd /d "%~dp0"
 set "OUTPUT_DIR=nuitka_dist"
 set "PACKAGE_DIR=%OUTPUT_DIR%\Sagami Youtube Downloader"
 set "ICON_FILE=Sagami Youtube Downloader.ico"
+set "NUITKA_CACHE_DIR=%CD%\.nuitka-cache"
+if not exist "%NUITKA_CACHE_DIR%" mkdir "%NUITKA_CACHE_DIR%"
 
 if not exist "main.py" (
   echo [ERROR] main.py not found.
@@ -66,6 +68,5 @@ echo [DONE] Package output
 echo.
 echo Build completed: %PACKAGE_DIR%
 echo.
-echo なにかキーを押してください . . .
-pause >nul
+pause
 exit /b 0
