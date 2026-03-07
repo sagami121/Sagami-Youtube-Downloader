@@ -543,6 +543,9 @@ class DownloadThread(QThread):
 class YtDlpUpdateThread(QThread):
     finished = pyqtSignal(bool, str, str, str, str)
 
+    def _create_flags(self) -> int:
+        return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
     def _get_version(self, yt_cmd):
         try:
             process = subprocess.run(
@@ -562,6 +565,43 @@ class YtDlpUpdateThread(QThread):
             pass
         return "不明"
 
+    def _is_pypi_update_hint(self, text: str) -> bool:
+        body = (text or "").lower()
+        return (
+            "you installed yt-dlp with pip" in body
+            or "wheel from pypi" in body
+            or "use that to update" in body
+        )
+
+    def _run_pip_update(self):
+        candidates = []
+        if sys.executable:
+            candidates.append([sys.executable, "-m", "pip", "install", "-U", "yt-dlp"])
+        candidates.append(["python", "-m", "pip", "install", "-U", "yt-dlp"])
+        if os.name == "nt":
+            candidates.append(["py", "-m", "pip", "install", "-U", "yt-dlp"])
+
+        logs = []
+        for cmd in candidates:
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    creationflags=self._create_flags(),
+                )
+                out, _ = proc.communicate()
+                logs.append(f"$ {' '.join(cmd)}\n{(out or '').strip()}")
+                if proc.returncode == 0:
+                    return True, "\n\n".join(logs)
+            except Exception as e:
+                logs.append(f"$ {' '.join(cmd)}\n実行エラー: {e}")
+
+        return False, "\n\n".join(logs)
+
     def run(self):
         yt_cmd = resolve_yt_dlp_command()
         if yt_cmd is None:
@@ -577,11 +617,22 @@ class YtDlpUpdateThread(QThread):
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                creationflags=self._create_flags()
             )
             output, _ = process.communicate()
+
+            if process.returncode != 0 and self._is_pypi_update_hint(output):
+                pip_ok, pip_output = self._run_pip_update()
+                output = (output or "") + "\n\n[pip fallback]\n" + (pip_output or "")
+                if pip_ok:
+                    process_returncode = 0
+                else:
+                    process_returncode = process.returncode
+            else:
+                process_returncode = process.returncode
+
             after_version = self._get_version(yt_cmd)
-            if process.returncode == 0:
+            if process_returncode == 0:
                 state = "updated"
                 if before_version != "不明" and after_version != "不明" and before_version == after_version:
                     state = "up_to_date"
