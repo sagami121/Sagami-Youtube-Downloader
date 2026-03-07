@@ -7,9 +7,10 @@ __pycache__/
 *.pytest_cache/
 
 # PyInstaller
-/dist/
-/build/
+dist/
+build/
 *.spec
+nuitka_dist/
 
 # Settings / Config
 config.json

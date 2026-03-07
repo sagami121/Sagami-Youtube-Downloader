@@ -687,9 +687,19 @@ class AppUpdateThread(QThread):
         return any(host == suffix or host.endswith("." + suffix) for suffix in trusted_suffixes)
 
     def _urlopen_with_ssl_fallback(self, req, url: str, timeout: int = 10):
+        def _is_ssl_verify_error(exc: Exception) -> bool:
+            if isinstance(exc, ssl.SSLCertVerificationError):
+                return True
+            if isinstance(exc, urllib.error.URLError):
+                reason = getattr(exc, "reason", None)
+                return isinstance(reason, ssl.SSLCertVerificationError)
+            return False
+
         try:
             return urllib.request.urlopen(req, timeout=timeout)
-        except ssl.SSLCertVerificationError as first_error:
+        except Exception as first_error:
+            if not _is_ssl_verify_error(first_error):
+                raise
             certifi_ctx = None
             try:
                 import certifi
@@ -700,7 +710,9 @@ class AppUpdateThread(QThread):
             if certifi_ctx is not None:
                 try:
                     return urllib.request.urlopen(req, timeout=timeout, context=certifi_ctx)
-                except ssl.SSLCertVerificationError:
+                except Exception as second_error:
+                    if not _is_ssl_verify_error(second_error):
+                        raise
                     pass
 
             if self._is_known_update_host(url):

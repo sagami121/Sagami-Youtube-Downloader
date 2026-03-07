@@ -5,6 +5,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 import ssl
 import json
 from datetime import datetime
@@ -73,9 +74,19 @@ def is_known_update_host(url: str) -> bool:
 
 
 def urlopen_with_ssl_fallback(req, url: str, timeout: int = 60):
+    def _is_ssl_verify_error(exc: Exception) -> bool:
+        if isinstance(exc, ssl.SSLCertVerificationError):
+            return True
+        if isinstance(exc, urllib.error.URLError):
+            reason = getattr(exc, "reason", None)
+            return isinstance(reason, ssl.SSLCertVerificationError)
+        return False
+
     try:
         return urllib.request.urlopen(req, timeout=timeout)
-    except ssl.SSLCertVerificationError as first_error:
+    except Exception as first_error:
+        if not _is_ssl_verify_error(first_error):
+            raise
         certifi_ctx = None
         try:
             import certifi
@@ -86,7 +97,9 @@ def urlopen_with_ssl_fallback(req, url: str, timeout: int = 60):
         if certifi_ctx is not None:
             try:
                 return urllib.request.urlopen(req, timeout=timeout, context=certifi_ctx)
-            except ssl.SSLCertVerificationError:
+            except Exception as second_error:
+                if not _is_ssl_verify_error(second_error):
+                    raise
                 pass
 
         if is_known_update_host(url):
