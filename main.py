@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler
 from PyQt6.QtGui import QFont, QIcon, QDesktopServices
 
-VERSION = "1.3"
+VERSION = "1.4"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
@@ -1097,6 +1097,7 @@ class Main(QWidget):
         self.setMinimumSize(720, 600)
         self.cfg = load_config()
         self.is_animating = False  # アニメーション中かどうかを追跡
+        self.download_thread = None
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -1445,36 +1446,33 @@ class Main(QWidget):
 
     def _launch_background_update(self, installer_url: str, release_page_url: str):
         app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
-        updater_exe_path = app_dir / "Sagami Youtube Updater.exe"
-        updater_path = app_dir / "update.py"
+        pf86 = Path(os.getenv("ProgramFiles(x86)") or r"C:\Program Files (x86)")
+        pf64 = Path(os.getenv("ProgramFiles") or r"C:\Program Files")
+        updater_candidates = (
+            app_dir / "Sagami Youtube Updater.exe",
+            pf86 / "Sagami Youtube Downloader" / "Sagami Youtube Updater.exe",
+            pf64 / "Sagami Youtube Downloader" / "Sagami Youtube Updater.exe",
+            app_dir / "nuitka_dist" / "Sagami Youtube Downloader" / "Sagami Youtube Updater.exe",
+            app_dir / "nuitka_dist" / "update.dist" / "Sagami Youtube Updater.exe",
+            app_dir / "dist" / "Sagami Youtube Downloader" / "Sagami Youtube Updater.exe",
+            app_dir / "build" / "update" / "Sagami Youtube Updater.exe",
+        )
+        updater_exe_path = next((p for p in updater_candidates if p.exists()), updater_candidates[0])
 
         try:
             launch_path = sys.executable if getattr(sys, "frozen", False) else str((app_dir / "main.py").resolve())
-            if getattr(sys, "frozen", False):
-                if not updater_exe_path.exists():
-                    self._show_warning("更新", f"Updater が見つかりません: {updater_exe_path}")
-                    if release_page_url:
-                        QDesktopServices.openUrl(QUrl(release_page_url))
-                    return
-                cmd = [
-                    str(updater_exe_path),
-                    "--installer-url", installer_url,
-                    "--current-pid", str(os.getpid()),
-                    "--launch-path", launch_path,
-                ]
-            else:
-                if not updater_path.exists():
-                    self._show_warning("更新", f"update.py が見つかりません: {updater_path}")
-                    if release_page_url:
-                        QDesktopServices.openUrl(QUrl(release_page_url))
-                    return
-                python_cmd = sys.executable
-                cmd = [
-                    python_cmd, str(updater_path),
-                    "--installer-url", installer_url,
-                    "--current-pid", str(os.getpid()),
-                    "--launch-path", launch_path,
-                ]
+            if not updater_exe_path.exists():
+                tried = "\n".join(str(p) for p in updater_candidates)
+                self._show_warning("更新", f"Updater が見つかりません。\n確認パス:\n{tried}")
+                if release_page_url:
+                    QDesktopServices.openUrl(QUrl(release_page_url))
+                return
+            cmd = [
+                str(updater_exe_path),
+                "--installer-url", installer_url,
+                "--current-pid", str(os.getpid()),
+                "--launch-path", launch_path,
+            ]
 
             subprocess.Popen(
                 cmd,
@@ -1486,7 +1484,7 @@ class Main(QWidget):
         except Exception as e:
             log_path = write_ini_log(
                 "update_launch_error",
-                {"error": repr(e), "installer_url": installer_url, "updater_path": str(updater_path)},
+                {"error": repr(e), "installer_url": installer_url, "updater_path": str(updater_exe_path)},
                 prefix="update_launch_error",
             )
             self._show_warning("更新", f"自動更新の起動に失敗しました。\nログ: {log_path}")
@@ -1607,7 +1605,7 @@ class Main(QWidget):
 
     def start(self):
         # Toggle: if a download is running, cancel it
-        if hasattr(self, 't') and self.t.isRunning():
+        if self.download_thread is not None and self.download_thread.isRunning():
             self.cancel_download()
             return
 
@@ -1638,10 +1636,10 @@ class Main(QWidget):
         cfg["time_range_end"] = end_sec
         save_config(cfg)
         download_folder = self.path_display.text().strip() or os.path.join(os.path.expanduser("~"), "Downloads")
-        self.t = DownloadThread(url, download_folder, cfg)
-        self.t.progress.connect(self.update_progress)
-        self.t.finished.connect(self.done)
-        self.t.start()
+        self.download_thread = DownloadThread(url, download_folder, cfg)
+        self.download_thread.progress.connect(self.update_progress)
+        self.download_thread.finished.connect(self.done)
+        self.download_thread.start()
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
@@ -1654,12 +1652,12 @@ class Main(QWidget):
             pass
 
     def cancel_download(self):
-        if not hasattr(self, 't'):
+        if self.download_thread is None:
             return
         try:
-            self.t._stopped = True
-            if hasattr(self.t, 'process') and self.t.process:
-                self.t.process.terminate()
+            self.download_thread._stopped = True
+            if hasattr(self.download_thread, 'process') and self.download_thread.process:
+                self.download_thread.process.terminate()
             self.btn_dl.setText("キャンセル中...")
             self.btn_update_ytdlp.setEnabled(True)
             self.progress_bar.setVisible(False)
@@ -1667,6 +1665,7 @@ class Main(QWidget):
             pass
 
     def done(self, msg):
+        self.download_thread = None
         self.btn_dl.setEnabled(True)
         self.btn_dl.setText("ダウンロードを開始")
         self.btn_update_ytdlp.setEnabled(True)

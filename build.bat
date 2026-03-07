@@ -13,10 +13,6 @@ if not exist "main.py" (
   echo [ERROR] main.py not found.
   exit /b 1
 )
-if not exist "update.py" (
-  echo [ERROR] update.py not found.
-  exit /b 1
-)
 if not exist "yt-dlp.exe" (
   echo [ERROR] yt-dlp.exe not found.
   exit /b 1
@@ -71,6 +67,7 @@ if errorlevel 1 (
   echo [ERROR] Copy icon failed.
   exit /b 1
 )
+
 echo [DONE] Package output
 
 echo.
