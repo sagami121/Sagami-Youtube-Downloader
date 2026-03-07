@@ -18,6 +18,7 @@ from PyQt6.QtGui import QFont, QIcon, QDesktopServices
 VERSION = "1.2.1"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
+APP_DISPLAY_NAME = "Sagami youtube Downloader"
 
 def qt_message_filter(_msg_type, _context, message):
     text = str(message or "")
@@ -1050,7 +1051,12 @@ class Main(QWidget):
 
         card_layout.addLayout(actions_layout)
 
-        self.app_status_label = QLabel(f"{VERSION} - 確認待ち")
+        self.ytdlp_status_label = QLabel("yt-dlp - 確認待ち")
+        self.ytdlp_status_label.setObjectName("YtDlpStatusLabel")
+        self.ytdlp_status_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        card_layout.addWidget(self.ytdlp_status_label)
+
+        self.app_status_label = QLabel(f"{APP_DISPLAY_NAME} - {VERSION} 確認待ち")
         self.app_status_label.setObjectName("AppStatusLabel")
         self.app_status_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         card_layout.addWidget(self.app_status_label)
@@ -1081,6 +1087,7 @@ class Main(QWidget):
 
         self.apply_style()
         QTimer.singleShot(700, self.check_app_update_on_startup)
+        QTimer.singleShot(1200, self.check_ytdlp_on_startup)
 
     def apply_style(self):
         self.setStyleSheet(get_stylesheet(self.cfg.get("theme", "dark"), "main"))
@@ -1198,10 +1205,12 @@ class Main(QWidget):
 
     def check_ytdlp_on_startup(self):
         if resolve_yt_dlp_command() is None:
+            self.set_ytdlp_status("不明", "failed")
             return
         if hasattr(self, "startup_updater") and self.startup_updater.isRunning():
             return
 
+        self.ytdlp_status_label.setText("yt-dlp - 確認中...")
         self.startup_updater = YtDlpUpdateThread()
         self.startup_updater.finished.connect(self.on_startup_ytdlp_updated)
         self.startup_updater.start()
@@ -1218,14 +1227,14 @@ class Main(QWidget):
 
         source_url = str(self.cfg.get("app_update_source_url", "") or APP_GITHUB_REPO_URL).strip()
         if not source_url:
-            self.app_status_label.setText(f"{VERSION} - 更新元URL未設定")
+            self.app_status_label.setText(f"{APP_DISPLAY_NAME} - {VERSION} 更新元URL未設定")
             if interactive:
                 self._show_info("アプリ更新", "GitHubリポジトリURLが未設定です。\nconfig.json の app_update_source_url にURLを設定してください。")
             return
 
         self.btn_check_app_update.setEnabled(False)
         self.btn_check_app_update.setText("確認中...")
-        self.app_status_label.setText(f"{VERSION} - 確認中...")
+        self.app_status_label.setText(f"{APP_DISPLAY_NAME} - {VERSION} 確認中...")
         self.app_updater = AppUpdateThread(source_url)
         self.app_updater.finished.connect(
             lambda ok, state, current, latest, page_url, notes, published_at, installer_url:
@@ -1279,14 +1288,14 @@ class Main(QWidget):
         version_display = latest_version or current_version
 
         if not ok:
-            self.app_status_label.setText(f"{version_display} - 確認失敗")
+            self.app_status_label.setText(f"{APP_DISPLAY_NAME} - {version_display} 確認失敗")
             if interactive:
                 reason = (notes or "").strip() or "不明なエラー"
                 self._show_warning("更新", f"更新確認に失敗しました。\n\n理由: {reason}")
             return
 
         if state == "update_available":
-            self.app_status_label.setText(f"{current_version}→{latest_version} - 更新あり")
+            self.app_status_label.setText(f"{APP_DISPLAY_NAME} - {current_version}→{latest_version} 更新あり")
             notes_text = notes or "更新内容は取得できませんでした。"
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Information)
@@ -1310,7 +1319,7 @@ class Main(QWidget):
                 QDesktopServices.openUrl(QUrl(release_page_url))
             return
 
-        self.app_status_label.setText(f"{current_version} - 最新です")
+        self.app_status_label.setText(f"{APP_DISPLAY_NAME} - {current_version} 最新版です")
         if interactive and not suppress_latest_popup:
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Information)
@@ -1326,19 +1335,29 @@ class Main(QWidget):
 
         version = (version or "不明").strip()
         if state == "up_to_date":
-            self.ytdlp_status_label.setText(f"{version} - 最新です")
+            self.ytdlp_status_label.setText(f"yt-dlp - {version} 最新版です")
         elif state == "updated":
-            self.ytdlp_status_label.setText(f"{version} - 更新しました")
+            self.ytdlp_status_label.setText(f"yt-dlp - {version} 更新しました")
         else:
-            self.ytdlp_status_label.setText(f"{version} - 確認失敗")
+            self.ytdlp_status_label.setText(f"yt-dlp - {version} 確認失敗")
 
         self.ytdlp_status_label.setVisible(True)
     def on_startup_ytdlp_updated(self, ok: bool, state: str, before_version: str, after_version: str, output: str):
         status_version = after_version if after_version != "不明" else before_version
-        if ok and state == "up_to_date":
-            self.set_ytdlp_status(status_version, "up_to_date")
+        self.set_ytdlp_status(status_version, state if ok else "failed")
+        if ok:
             return
-        self.on_ytdlp_updated(ok, state, before_version, after_version, output)
+        log_path = write_ini_log(
+            "ytdlp_update_startup_failed",
+            {
+                "before_version": before_version,
+                "after_version": after_version,
+                "state": state,
+                "output_tail": tail_text(output),
+            },
+            prefix="ytdlp_update_startup_failed",
+        )
+        self.ytdlp_status_label.setText(f"yt-dlp - {status_version} 確認失敗 (ログ: {Path(log_path).name})")
 
     def on_ytdlp_updated(self, ok: bool, state: str, before_version: str, after_version: str, output: str):
         self.btn_update_ytdlp.setEnabled(True)
