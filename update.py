@@ -5,6 +5,8 @@ import sys
 import tempfile
 import time
 import urllib.request
+import ssl
+import json
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -54,49 +56,98 @@ def download_installer(url: str) -> Path:
     temp_dir.mkdir(parents=True, exist_ok=True)
     target = temp_dir / name
     req = urllib.request.Request(url, headers={"User-Agent": "Sagami-Youtube-Downloader-Updater"})
-    with urllib.request.urlopen(req, timeout=60) as response:
+    with urlopen_with_ssl_fallback(req, url, timeout=60) as response:
         data = response.read()
     target.write_bytes(data)
     return target
 
 
-def _run_and_wait(cmd: list[str], flags: int, timeout_sec: int = 1800) -> bool:
+def is_known_update_host(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    trusted_suffixes = (
+        "github.com",
+        "githubusercontent.com",
+        "githubassets.com",
+    )
+    return any(host == suffix or host.endswith("." + suffix) for suffix in trusted_suffixes)
+
+
+def urlopen_with_ssl_fallback(req, url: str, timeout: int = 60):
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except ssl.SSLCertVerificationError as first_error:
+        certifi_ctx = None
+        try:
+            import certifi
+            certifi_ctx = ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            certifi_ctx = None
+
+        if certifi_ctx is not None:
+            try:
+                return urllib.request.urlopen(req, timeout=timeout, context=certifi_ctx)
+            except ssl.SSLCertVerificationError:
+                pass
+
+        if is_known_update_host(url):
+            insecure_ctx = ssl._create_unverified_context()
+            return urllib.request.urlopen(req, timeout=timeout, context=insecure_ctx)
+        raise first_error
+
+
+def _run_and_wait(cmd: list[str], flags: int, timeout_sec: int = 1800) -> tuple[bool, int | None]:
     try:
         p = subprocess.Popen(cmd, creationflags=flags)
         code = p.wait(timeout=timeout_sec)
-        return code == 0
+        return code == 0, code
     except subprocess.TimeoutExpired:
-        return False
+        return False, None
     except Exception:
-        return False
+        return False, None
 
 
-def try_start_installer(installer_path: Path) -> bool:
+def detect_installer_kind(installer_path: Path) -> str:
+    name = installer_path.name.lower()
     ext = installer_path.suffix.lower()
-    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-
     if ext == ".msi":
-        return _run_and_wait(["msiexec", "/i", str(installer_path), "/qn", "/norestart"], flags)
+        return "msi"
+    if "inno" in name or "setup" in name:
+        return "inno"
+    if "nsis" in name:
+        return "nsis"
+    return "exe"
 
-    arg_sets = [
-        ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/TASKS=desktopicon"],
-        ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/MERGETASKS=!desktopicon"],
-        ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"],
-        ["/SILENT", "/NORESTART"],
-        ["/S", "/NORESTART"],
-        ["/quiet", "/norestart"],
+
+def installer_profiles(installer_path: Path, kind: str) -> list[list[str]]:
+    if kind == "msi":
+        return [["msiexec", "/i", str(installer_path), "/qn", "/norestart"]]
+    if kind == "inno":
+        return [
+            [str(installer_path), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/TASKS=desktopicon"],
+            [str(installer_path), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"],
+        ]
+    if kind == "nsis":
+        return [
+            [str(installer_path), "/S"],
+            [str(installer_path), "/S", "/NORESTART"],
+        ]
+    return [
+        [str(installer_path), "/quiet", "/norestart"],
+        [str(installer_path), "/SILENT", "/NORESTART"],
+        [str(installer_path), "/S", "/NORESTART"],
     ]
 
-    for extra in arg_sets:
-        if _run_and_wait([str(installer_path), *extra], flags):
-            return True
 
-    try:
-        os.startfile(str(installer_path))
-        time.sleep(5.0)
-        return True
-    except Exception:
-        return False
+def run_installer_with_profiles(installer_path: Path) -> tuple[bool, list[dict]]:
+    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    kind = detect_installer_kind(installer_path)
+    attempts = []
+    for cmd in installer_profiles(installer_path, kind):
+        ok, code = _run_and_wait(cmd, flags)
+        attempts.append({"cmd": cmd, "ok": ok, "code": code, "kind": kind})
+        if ok:
+            return True, attempts
+    return False, attempts
 
 
 def relaunch_app(launch_path: str) -> bool:
@@ -114,19 +165,41 @@ def relaunch_app(launch_path: str) -> bool:
         return False
 
 
+def verify_installation(launch_path: str, install_dir: str, timeout_sec: int = 180) -> bool:
+    deadline = time.time() + timeout_sec
+    launch = Path(launch_path).expanduser() if launch_path else None
+    install = Path(install_dir).expanduser() if install_dir else None
+
+    while time.time() < deadline:
+        if launch and launch.exists() and launch.is_file():
+            try:
+                if launch.stat().st_size > 0:
+                    return True
+            except Exception:
+                pass
+        if install and install.exists() and any(install.glob("*.exe")):
+            return True
+        time.sleep(1.0)
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--installer-url", required=True)
     parser.add_argument("--current-pid", type=int, default=0)
     parser.add_argument("--launch-path", default="")
+    parser.add_argument("--install-dir", default="")
     args = parser.parse_args()
 
     try:
         wait_for_process_exit(args.current_pid, timeout_sec=120)
         installer_path = download_installer(args.installer_url)
-        ok = try_start_installer(installer_path)
+        ok, attempts = run_installer_with_profiles(installer_path)
         if not ok:
             raise RuntimeError("インストーラーの起動に失敗しました。")
+        installed = verify_installation(args.launch_path, args.install_dir, timeout_sec=180)
+        if not installed:
+            raise RuntimeError("インストール完了を確認できませんでした。")
         relaunched = False
         if args.launch_path:
             # Give installer side-effects a moment to settle before relaunch.
@@ -139,17 +212,25 @@ def main():
                 "installer_path": str(installer_path),
                 "pid_waited": args.current_pid,
                 "launch_path": args.launch_path,
+                "install_dir": args.install_dir,
+                "attempts": json.dumps(attempts, ensure_ascii=False),
+                "installed": installed,
                 "relaunched": relaunched,
             },
             prefix="update_started",
         )
     except Exception as e:
+        rollback = False
+        if args.launch_path:
+            rollback = relaunch_app(args.launch_path)
         write_ini_log(
             "update_error",
             {
                 "installer_url": args.installer_url,
                 "pid_waited": args.current_pid,
                 "launch_path": args.launch_path,
+                "install_dir": args.install_dir,
+                "rollback_relaunched": rollback,
                 "error": repr(e),
             },
             prefix="update_error",

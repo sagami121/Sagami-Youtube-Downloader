@@ -7,13 +7,15 @@ import shutil
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
+import ssl
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler
 from PyQt6.QtGui import QFont, QIcon, QDesktopServices
 
-VERSION = "v1.2"
+VERSION = "1.2.1"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 
@@ -39,6 +41,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QLabel { color: #333333; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }
             QLabel#Title { color: #000000; font-size: 24px; font-weight: 200; margin-left: 0px; }
             QLineEdit, QComboBox { border: 1px solid #d5d5d7; padding: 10px 12px; border-radius: 10px; background: #ffffff; color: #000000; font-size: 14px; }
+            QLineEdit#PathDisplay { color: #111111; font-size: 15px; font-weight: 500; }
             QLineEdit:focus, QComboBox:focus { border: 1px solid #d5d5d7; border-bottom: 2px solid #0a84ff; }
             QComboBox::drop-down { border: none; width: 22px; }
             QPushButton { background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }
@@ -83,6 +86,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QLabel { color: #8e8e93; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }
             QLabel#Title { color: #ffffff; font-size: 24px; font-weight: 200; margin-left: 0px; }
             QLineEdit, QComboBox { border: 1px solid #3a3a3c; padding: 10px 12px; border-radius: 10px; background: #2c2c2e; color: #ffffff; font-size: 14px; }
+            QLineEdit#PathDisplay { color: #f2f2f7; font-size: 15px; font-weight: 500; }
             QLineEdit:focus, QComboBox:focus { border: 1px solid #3a3a3c; border-bottom: 2px solid #0a84ff; }
             QComboBox::drop-down { border: none; width: 22px; }
             QPushButton { background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }
@@ -118,8 +122,6 @@ def get_stylesheet(theme="dark", widget_type="main"):
             #ClearBtn { color: #ff453a; }
             #SaveBtn { background-color: #0a84ff; font-weight: bold; font-size: 15px; border: none; }
             """
-
-CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 
 def lerp_color(start_color, end_color, progress):
     """16進数カラーコードを線形補間"""
@@ -619,9 +621,40 @@ class AppUpdateThread(QThread):
 
     def _http_get_json(self, url: str):
         req = urllib.request.Request(url, headers={"User-Agent": "Sagami-Youtube-Downloader"})
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with self._urlopen_with_ssl_fallback(req, url, timeout=10) as response:
             payload = response.read().decode("utf-8")
         return json.loads(payload)
+
+    def _is_known_update_host(self, url: str) -> bool:
+        host = (urllib.parse.urlparse(url).hostname or "").lower()
+        trusted_suffixes = (
+            "github.com",
+            "githubusercontent.com",
+            "githubassets.com",
+        )
+        return any(host == suffix or host.endswith("." + suffix) for suffix in trusted_suffixes)
+
+    def _urlopen_with_ssl_fallback(self, req, url: str, timeout: int = 10):
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except ssl.SSLCertVerificationError as first_error:
+            certifi_ctx = None
+            try:
+                import certifi
+                certifi_ctx = ssl.create_default_context(cafile=certifi.where())
+            except Exception:
+                certifi_ctx = None
+
+            if certifi_ctx is not None:
+                try:
+                    return urllib.request.urlopen(req, timeout=timeout, context=certifi_ctx)
+                except ssl.SSLCertVerificationError:
+                    pass
+
+            if self._is_known_update_host(url):
+                insecure_ctx = ssl._create_unverified_context()
+                return urllib.request.urlopen(req, timeout=timeout, context=insecure_ctx)
+            raise first_error
 
     def _pick_installer_asset_url(self, release_data: dict) -> str:
         assets = release_data.get("assets") or []
@@ -801,6 +834,71 @@ class Settings(QDialog):
         self.accept()
 
 
+class LogViewerDialog(QDialog):
+    def __init__(self, parent, logs_dir: Path):
+        super().__init__(parent)
+        self.logs_dir = logs_dir
+        self.setWindowTitle("ログビュー")
+        self.resize(760, 520)
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        self.list_logs = QListWidget()
+        self.list_logs.setMinimumHeight(180)
+        self.list_logs.currentItemChanged.connect(self.on_log_selected)
+        layout.addWidget(self.list_logs)
+
+        self.text_log = QPlainTextEdit()
+        self.text_log.setReadOnly(True)
+        layout.addWidget(self.text_log, 1)
+
+        actions = QHBoxLayout()
+        actions.addStretch()
+        self.btn_refresh = QPushButton("再読み込み")
+        self.btn_open_folder = QPushButton("フォルダを開く")
+        self.btn_close = QPushButton("閉じる")
+        self.btn_refresh.clicked.connect(self.refresh_logs)
+        self.btn_open_folder.clicked.connect(self.open_logs_folder)
+        self.btn_close.clicked.connect(self.close)
+        actions.addWidget(self.btn_refresh)
+        actions.addWidget(self.btn_open_folder)
+        actions.addWidget(self.btn_close)
+        layout.addLayout(actions)
+
+        self.refresh_logs()
+
+    def refresh_logs(self):
+        self.list_logs.clear()
+        self.text_log.clear()
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        files = sorted(self.logs_dir.glob("*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for p in files:
+            item = QListWidgetItem(p.name)
+            item.setData(Qt.ItemDataRole.UserRole, str(p))
+            self.list_logs.addItem(item)
+        if self.list_logs.count() > 0:
+            self.list_logs.setCurrentRow(0)
+        else:
+            self.text_log.setPlainText("ログがありません。")
+
+    def on_log_selected(self, current, _previous):
+        if current is None:
+            self.text_log.clear()
+            return
+        path = Path(current.data(Qt.ItemDataRole.UserRole))
+        try:
+            self.text_log.setPlainText(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            self.text_log.setPlainText(f"ログの読み込みに失敗しました。\n{e}")
+
+    def open_logs_folder(self):
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.logs_dir)))
+
+
 class Main(QWidget):
     def __init__(self):
         super().__init__()
@@ -874,9 +972,11 @@ class Main(QWidget):
         path_layout = QHBoxLayout()
         path_layout.setSpacing(8)
         self.path_display = FocusClearLineEdit()
+        self.path_display.setObjectName("PathDisplay")
         self.path_display.setText(self.cfg.get("path"))
-        self.path_display.setReadOnly(True)
+        self.path_display.setReadOnly(False)
         self.path_display.setFixedHeight(40)
+        self.path_display.editingFinished.connect(self.on_path_edited)
         
         self.btn_browse = QPushButton("選択")
         self.btn_browse.setFixedWidth(80)
@@ -945,6 +1045,7 @@ class Main(QWidget):
         self.btn_check_app_update.setObjectName("SecondaryBtn")
         self.btn_check_app_update.setMinimumHeight(46)
         self.btn_check_app_update.clicked.connect(self.check_app_update_manually)
+        self.btn_check_app_update.setVisible(False)
         actions_layout.addWidget(self.btn_check_app_update)
 
         card_layout.addLayout(actions_layout)
@@ -964,10 +1065,14 @@ class Main(QWidget):
         card_layout.addWidget(self.progress_bar)
 
         # 詳細設定
+        foot_actions = QHBoxLayout()
+        foot_actions.addStretch()
         self.btn_settings = QPushButton("詳細設定")
         self.btn_settings.setObjectName("SettingsBtn")
         self.btn_settings.clicked.connect(self.open_settings)
-        card_layout.addWidget(self.btn_settings, alignment=Qt.AlignmentFlag.AlignCenter)
+        foot_actions.addWidget(self.btn_settings)
+        foot_actions.addStretch()
+        card_layout.addLayout(foot_actions)
 
         center_layout.addWidget(card)
         center_layout.addStretch()
@@ -985,43 +1090,27 @@ class Main(QWidget):
         if theme == "light":
             return """
                 QMessageBox { background-color: #ffffff; }
-                QMessageBox QLabel { color: #222222; font-size: 13px; font-weight: 400; }
-                QMessageBox QLabel#qt_msgbox_label { font-size: 16px; font-weight: 600; }
-                QMessageBox QLabel#qt_msgbox_informativelabel { font-size: 14px; font-weight: 400; }
-                QMessageBox QPushButton {
-                    min-width: 110px;
-                    min-height: 34px;
-                    border-radius: 8px;
-                    border: none;
-                    background-color: #0a84ff;
-                    color: #ffffff;
-                    font-size: 12px;
-                    font-weight: 600;
-                    padding: 6px 10px;
-                }
-                QMessageBox QPushButton:hover { background-color: #409cff; }
+                QMessageBox QLabel { color: #222222; font-size: 13px; font-weight: 400; padding-top: 2px; padding-bottom: 2px; }
             """
         return """
             QMessageBox { background-color: #1c1c1e; }
-            QMessageBox QLabel { color: #f2f2f7; font-size: 13px; font-weight: 400; }
-            QMessageBox QLabel#qt_msgbox_label { font-size: 16px; font-weight: 600; }
-            QMessageBox QLabel#qt_msgbox_informativelabel { font-size: 14px; font-weight: 400; }
-            QMessageBox QPushButton {
-                min-width: 110px;
-                min-height: 34px;
-                border-radius: 8px;
-                border: none;
-                background-color: #0a84ff;
-                color: #ffffff;
-                font-size: 12px;
-                font-weight: 600;
-                padding: 6px 10px;
-            }
-            QMessageBox QPushButton:hover { background-color: #409cff; }
+            QMessageBox QLabel { color: #f2f2f7; font-size: 13px; font-weight: 400; padding-top: 2px; padding-bottom: 2px; }
         """
 
     def _apply_messagebox_theme(self, box: QMessageBox):
         box.setStyleSheet(self._messagebox_stylesheet())
+        try:
+            title_label = box.findChild(QLabel, "qt_msgbox_label")
+            if title_label:
+                title_label.setWordWrap(True)
+                title_label.setContentsMargins(0, 2, 0, 2)
+            info_label = box.findChild(QLabel, "qt_msgbox_informativelabel")
+            if info_label:
+                info_label.setWordWrap(True)
+                info_label.setContentsMargins(0, 2, 0, 2)
+            box.setMinimumWidth(max(box.minimumWidth(), 430))
+        except Exception:
+            pass
 
     def _show_info(self, title: str, text: str):
         box = QMessageBox(self)
@@ -1087,6 +1176,11 @@ class Main(QWidget):
             self.path_display.setText(folder)
             self.cfg["path"] = folder
             save_config(self.cfg)
+
+    def on_path_edited(self):
+        path = self.path_display.text().strip()
+        self.cfg["path"] = path
+        save_config(self.cfg)
 
     def update_ytdlp(self):
         if hasattr(self, "updater") and self.updater.isRunning():
@@ -1198,7 +1292,7 @@ class Main(QWidget):
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle("更新")
             msg.setMinimumWidth(460)
-            msg.setText(f"アプリ更新があります。\n現在: {current_version}\n最新: {latest_version}")
+            msg.setText(f"更新通知\nアプリ更新があります。\n現在: {current_version}\n最新: {latest_version}")
             msg.setInformativeText(f"更新内容:\n{notes_text}")
             self._apply_messagebox_theme(msg)
             auto_btn = None
@@ -1222,7 +1316,7 @@ class Main(QWidget):
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle("更新")
             msg.setMinimumWidth(420)
-            msg.setText(f"{current_version} は最新です。　　")
+            msg.setText(f"更新通知\n{current_version} は最新です。")
             self._apply_messagebox_theme(msg)
             msg.exec()
 
@@ -1275,6 +1369,7 @@ class Main(QWidget):
 
         url = self.url.text().strip()
         if not url:
+            self._show_warning("入力エラー", "YouTube URLを入力してください。")
             return
 
         # Check that yt-dlp is available
@@ -1449,6 +1544,7 @@ class Main(QWidget):
             QLabel {{ color: {label_color}; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }}
             QLabel#Title {{ color: {title_color}; font-size: 24px; font-weight: 200; margin-left: 0px; }}
             QLineEdit, QComboBox {{ border: 1px solid {input_border}; padding: 10px 12px; border-radius: 10px; background: {input_bg}; color: {input_text}; font-size: 14px; }}
+            QLineEdit#PathDisplay {{ color: {input_text}; font-size: 15px; font-weight: 500; }}
             QLineEdit:focus, QComboBox:focus {{ border: 1px solid {input_border}; border-bottom: 2px solid #0a84ff; }}
             QComboBox::drop-down {{ border: none; width: 22px; }}
             QPushButton {{ background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }}
