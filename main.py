@@ -34,6 +34,21 @@ def is_packaged_executable() -> bool:
 def get_runtime_app_dir() -> Path:
     return Path(sys.executable).parent if is_packaged_executable() else Path(__file__).parent
 
+def get_runtime_launch_target(app_dir: Path) -> Path:
+    if not is_packaged_executable():
+        return (app_dir / "main.py").resolve()
+
+    argv0 = Path(sys.argv[0]).resolve() if sys.argv else Path(sys.executable).resolve()
+    if argv0.suffix.lower() == ".exe" and argv0.exists() and argv0.name.lower() != "python.exe":
+        return argv0
+
+    preferred = app_dir / "Sagami Youtube Downloader.exe"
+    if preferred.exists():
+        return preferred.resolve()
+
+    fallback = Path(sys.executable).resolve()
+    return fallback
+
 def resolve_app_icon_path():
     app_dir = get_runtime_app_dir()
     candidates = (
@@ -1601,7 +1616,7 @@ class Main(QWidget):
         updater_exe_path = next((p for p in updater_candidates if p.exists()), updater_candidates[0])
 
         try:
-            launch_path = sys.executable if is_packaged_executable() else str((app_dir / "main.py").resolve())
+            launch_path = str(get_runtime_launch_target(app_dir))
             if not updater_exe_path.exists():
                 tried = "\n".join(str(p) for p in updater_candidates)
                 self._show_warning("更新", f"Updater が見つかりません。\n確認パス:\n{tried}")
@@ -1613,6 +1628,7 @@ class Main(QWidget):
                 "--installer-url", installer_url,
                 "--current-pid", str(os.getpid()),
                 "--launch-path", launch_path,
+                "--install-dir", str(app_dir),
             ]
 
             subprocess.Popen(

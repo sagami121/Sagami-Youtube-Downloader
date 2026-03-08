@@ -223,17 +223,26 @@ def run_installer_with_profiles(installer_path: Path) -> tuple[bool, list[dict]]
 
 def relaunch_app(launch_path: str) -> bool:
     path = Path(launch_path).expanduser()
-    if not path.exists():
+    candidates: list[Path] = []
+    if path.exists():
+        candidates.append(path)
+    if path.name.lower() == "python.exe":
+        sibling_main = path.parent / "Sagami Youtube Downloader.exe"
+        if sibling_main.exists():
+            candidates.insert(0, sibling_main)
+    if not candidates:
         return False
     flags = (subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS) if os.name == "nt" else 0
-    try:
-        if path.suffix.lower() == ".py":
-            subprocess.Popen([sys.executable, str(path)], creationflags=flags, cwd=str(path.parent))
-        else:
-            subprocess.Popen([str(path)], creationflags=flags, cwd=str(path.parent))
-        return True
-    except Exception:
-        return False
+    for target in candidates:
+        try:
+            if target.suffix.lower() == ".py":
+                subprocess.Popen([sys.executable, str(target)], creationflags=flags, cwd=str(target.parent))
+            else:
+                subprocess.Popen([str(target)], creationflags=flags, cwd=str(target.parent))
+            return True
+        except Exception:
+            continue
+    return False
 
 
 def verify_installation(launch_path: str, install_dir: str, timeout_sec: int = 180) -> bool:
