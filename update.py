@@ -122,15 +122,20 @@ def urlopen_with_ssl_fallback(req, url: str, timeout: int = 60):
         raise first_error
 
 
-def _run_and_wait(cmd: list[str], flags: int, timeout_sec: int = 1800) -> tuple[bool, int | None]:
+def _run_and_wait(cmd: list[str], flags: int, timeout_sec: int = 1800) -> tuple[bool, int | None, str | None]:
     try:
         p = subprocess.Popen(cmd, creationflags=flags)
         code = p.wait(timeout=timeout_sec)
-        return code == 0, code
+        return code == 0, code, None
     except subprocess.TimeoutExpired:
-        return False, None
+        return False, None, "timeout"
+    except OSError as e:
+        winerror = getattr(e, "winerror", None)
+        if winerror is not None:
+            return False, None, f"winerror_{winerror}"
+        return False, None, "oserror"
     except Exception:
-        return False, None
+        return False, None, "exception"
 
 
 def detect_installer_kind(installer_path: Path) -> str:
@@ -186,11 +191,33 @@ def run_installer_with_profiles(installer_path: Path) -> tuple[bool, list[dict]]
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     kind = detect_installer_kind(installer_path)
     attempts = []
+    # UACのキャンセルや昇格必須エラー時は、再試行しても同じ確認が繰り返されるだけなので停止する。
+    stop_retry_reasons = {"winerror_1223", "winerror_740"}
+    success_codes = {0}
+    reboot_required_codes_by_kind = {
+        "inno": {5},
+        "msi": {1641, 3010},
+        "exe": {1641, 3010},
+        "nsis": set(),
+    }
+    accepted_codes = success_codes | reboot_required_codes_by_kind.get(kind, set())
     for cmd in installer_profiles(installer_path, kind):
-        ok, code = _run_and_wait(cmd, flags)
-        attempts.append({"cmd": cmd, "ok": ok, "code": code, "kind": kind})
-        if ok:
+        ok, code, reason = _run_and_wait(cmd, flags)
+        accepted_as_success = bool(code is not None and code in accepted_codes)
+        attempts.append(
+            {
+                "cmd": cmd,
+                "ok": ok,
+                "code": code,
+                "kind": kind,
+                "reason": reason,
+                "accepted_as_success": accepted_as_success,
+            }
+        )
+        if ok or accepted_as_success:
             return True, attempts
+        if reason in stop_retry_reasons:
+            return False, attempts
     return False, attempts
 
 
