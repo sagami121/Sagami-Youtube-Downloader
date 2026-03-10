@@ -25,12 +25,12 @@ if not exist "ffprobe.exe" (
   echo [ERROR] ffprobe.exe not found.
   exit /b 1
 )
-if not exist "language\\ja.json" (
-  echo [ERROR] language\\ja.json not found.
+if not exist "language\ja.json" (
+  echo [ERROR] language\ja.json not found.
   exit /b 1
 )
-if not exist "language\\en.json" (
-  echo [ERROR] language\\en.json not found.
+if not exist "language\en.json" (
+  echo [ERROR] language\en.json not found.
   exit /b 1
 )
 if not exist "%ICON_FILE%" (
@@ -46,26 +46,17 @@ if errorlevel 1 (
 )
 echo [DONE] Build main app
 
-echo [START] Build updater
-python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico="%ICON_FILE%" --output-dir="%OUTPUT_DIR%" --output-filename="Sagami Youtube Updater.exe" update.py
-if errorlevel 1 (
-  echo [ERROR] Build updater failed.
-  exit /b 1
-)
-echo [DONE] Build updater
-
 echo [START] Package output
 if not exist "%PACKAGE_DIR%" mkdir "%PACKAGE_DIR%"
+
+@REM main.distの中身をパッケージディレクトリにコピー
 xcopy /E /I /Y "%OUTPUT_DIR%\main.dist\*" "%PACKAGE_DIR%\" >nul
 if errorlevel 1 (
   echo [ERROR] Copy from main.dist failed.
   exit /b 1
 )
-copy /Y "%OUTPUT_DIR%\update.dist\Sagami Youtube Updater.exe" "%PACKAGE_DIR%\" >nul
-if errorlevel 1 (
-  echo [ERROR] Copy updater exe failed.
-  exit /b 1
-)
+
+@REM アイコンファイルのコピー
 copy /Y "%ICON_FILE%" "%PACKAGE_DIR%\%ICON_FILE%" >nul
 if errorlevel 1 (
   echo [ERROR] Copy icon failed.

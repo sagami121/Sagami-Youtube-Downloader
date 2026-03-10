@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler
 from PyQt6.QtGui import QFont, QIcon, QDesktopServices
 
-VERSION = "1.5"
+VERSION = "1.5.1"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
@@ -1600,54 +1600,6 @@ class Main(QWidget):
         )
         self.app_updater.start()
 
-    def _launch_background_update(self, installer_url: str, release_page_url: str):
-        app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
-        pf86 = Path(os.getenv("ProgramFiles(x86)") or r"C:\Program Files (x86)")
-        pf64 = Path(os.getenv("ProgramFiles") or r"C:\Program Files")
-        updater_candidates = (
-            app_dir / "Sagami Youtube Updater.exe",
-            pf86 / "Sagami Youtube Downloader" / "Sagami Youtube Updater.exe",
-            pf64 / "Sagami Youtube Downloader" / "Sagami Youtube Updater.exe",
-            app_dir / "nuitka_dist" / "Sagami Youtube Downloader" / "Sagami Youtube Updater.exe",
-            app_dir / "nuitka_dist" / "update.dist" / "Sagami Youtube Updater.exe",
-            app_dir / "dist" / "Sagami Youtube Downloader" / "Sagami Youtube Updater.exe",
-            app_dir / "build" / "update" / "Sagami Youtube Updater.exe",
-        )
-        updater_exe_path = next((p for p in updater_candidates if p.exists()), updater_candidates[0])
-
-        try:
-            launch_path = str(get_runtime_launch_target(app_dir))
-            if not updater_exe_path.exists():
-                tried = "\n".join(str(p) for p in updater_candidates)
-                self._show_warning("更新", f"Updater が見つかりません。\n確認パス:\n{tried}")
-                if release_page_url:
-                    QDesktopServices.openUrl(QUrl(release_page_url))
-                return
-            cmd = [
-                str(updater_exe_path),
-                "--installer-url", installer_url,
-                "--current-pid", str(os.getpid()),
-                "--launch-path", launch_path,
-                "--install-dir", str(app_dir),
-            ]
-
-            subprocess.Popen(
-                cmd,
-                cwd=str(app_dir),
-                creationflags=(subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS) if os.name == "nt" else 0
-            )
-            self._show_info("更新", "バックグラウンドで更新を開始しました。\nこのアプリは終了します。")
-            QApplication.quit()
-        except Exception as e:
-            log_path = write_ini_log(
-                "update_launch_error",
-                {"error": repr(e), "installer_url": installer_url, "updater_path": str(updater_exe_path)},
-                prefix="update_launch_error",
-            )
-            self._show_warning("更新", f"自動更新の起動に失敗しました。\nログ: {log_path}")
-            if release_page_url:
-                QDesktopServices.openUrl(QUrl(release_page_url))
-
     def on_app_update_finished(self, ok: bool, state: str, current_version: str, latest_version: str, release_page_url: str, notes: str, published_at: str, installer_url: str, interactive: bool, suppress_latest_popup: bool):
         self.btn_check_app_update.setEnabled(True)
         self.btn_check_app_update.setText("アプリ更新を確認")
@@ -1670,18 +1622,17 @@ class Main(QWidget):
             msg.setText(f"更新通知\nアプリ更新があります。\n現在: {current_version}\n最新: {latest_version}")
             msg.setInformativeText(f"更新内容:\n{notes_text}")
             self._apply_messagebox_theme(msg)
-            auto_btn = None
+            
+            # --- 「自動更新」ボタンの作成(auto_btn)を削除 ---
             open_btn = None
-            if installer_url:
-                auto_btn = msg.addButton("自動更新", QMessageBox.ButtonRole.AcceptRole)
             if release_page_url:
                 open_btn = msg.addButton("ページを開く", QMessageBox.ButtonRole.AcceptRole)
+            
             msg.addButton("閉じる", QMessageBox.ButtonRole.RejectRole)
             msg.exec()
+            
             clicked = msg.clickedButton()
-            if auto_btn is not None and clicked == auto_btn:
-                self._launch_background_update(installer_url, release_page_url)
-            elif open_btn is not None and clicked == open_btn:
+            if open_btn is not None and clicked == open_btn:
                 QDesktopServices.openUrl(QUrl(release_page_url))
             return
 
