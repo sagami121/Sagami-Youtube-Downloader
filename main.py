@@ -900,8 +900,6 @@ class AppUpdateThread(QThread):
     def _load_release(self):
         if not self.source_url:
             raise ValueError("更新元URLが未設定です。")
-
-        # 1) GitHub Releases がある場合はこちらを優先
         try:
             data = self._http_get_json(self._github_latest_release_api(self.source_url))
             latest_version = str(data.get("tag_name", "")).strip()
