@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler
 from PyQt6.QtGui import QFont, QIcon, QDesktopServices
 
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
@@ -417,6 +417,8 @@ def load_config():
                 cfg["time_range_input"] = ""
             if "app_update_source_url" not in cfg:
                 cfg["app_update_source_url"] = ""
+            if "cookies_browser" not in cfg:
+                cfg["cookies_browser"] = "none"
             return cfg
     except (FileNotFoundError, json.JSONDecodeError):
         defaults = {
@@ -431,6 +433,7 @@ def load_config():
             "audio_quality": "0",
             "time_range_input": "",
             "app_update_source_url": "",
+            "cookies_browser": "none",
         }
         try:
             save_config(defaults)
@@ -566,6 +569,11 @@ class DownloadThread(QThread):
         ]
         if ffmpeg_ok:
             args += ["--ffmpeg-location", str(Path(ffmpeg_cmd).parent)]
+
+        # Cookies setting
+        cookies_browser = self.cfg.get("cookies_browser", "none")
+        if cookies_browser and cookies_browser != "none":
+            args += ["--cookies-from-browser", cookies_browser]
 
         out_format = self.cfg.get("format", "mp4")
         if out_format == "mp3":
@@ -965,15 +973,27 @@ class Settings(QDialog):
         self.parent_win = parent
         self.cfg = load_config()
         self.setWindowTitle(i18n(self.cfg, "settings.window_title", "出力設定"))
-        self.resize(460, 640)
-        self.setMinimumSize(420, 560)
+        self.resize(500, 700)
+        self.setMinimumSize(460, 600)
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, False)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(12)
+        main_vbox = QVBoxLayout(self)
+        main_vbox.setContentsMargins(0, 0, 0, 0)
+        main_vbox.setSpacing(0)
 
+        # Scroll Area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        
+        scroll_content = QWidget()
+        layout = QVBoxLayout(scroll_content)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(14)
+
+        # Language
         layout.addWidget(QLabel(i18n(self.cfg, "settings.language_label", "言語 / Language")))
         self.lang_combo = QComboBox()
         self.lang_combo.addItem(i18n(self.cfg, "settings.lang_ja", "日本語"), "ja")
@@ -983,7 +1003,8 @@ class Settings(QDialog):
         self.lang_combo.setMinimumHeight(40)
         layout.addWidget(self.lang_combo)
 
-        layout.addWidget(QLabel(i18n(self.cfg, "settings.choose_template_hint", "保存ファイル名の構成を選択してください")))
+        # Output Format
+        layout.addSpacing(4)
         layout.addWidget(QLabel(i18n(self.cfg, "settings.output_format", "出力形式")))
         self.format_combo = QComboBox()
         self.format_combo.addItem("Video (mp4)", "mp4")
@@ -995,22 +1016,26 @@ class Settings(QDialog):
         self.format_combo.setCurrentIndex(fmt_idx if fmt_idx >= 0 else 0)
         layout.addWidget(self.format_combo)
 
+        # Other Settings
+        layout.addSpacing(4)
         layout.addWidget(QLabel(i18n(self.cfg, "settings.other", "その他の設定")))
-        thumbnail_layout = QHBoxLayout()
         self.chk_thumbnail = QCheckBox(i18n(self.cfg, "settings.embed_thumbnail", "MP4に動画のサムネイルを埋め込む"))
         self.chk_thumbnail.setChecked(self.cfg.get("embed_thumbnail", False))
-        thumbnail_layout.addWidget(self.chk_thumbnail)
-        layout.addLayout(thumbnail_layout)
+        layout.addWidget(self.chk_thumbnail)
 
+        # Filename Template
+        layout.addSpacing(4)
         layout.addWidget(QLabel(i18n(self.cfg, "settings.current_template", "現在のファイル名構成")))
         self.template_display = QLineEdit()
         self.template_display.setText(self.cfg.get("template", "%(title)s"))
         layout.addWidget(self.template_display)
 
-        layout.addWidget(QLabel(i18n(self.cfg, "settings.filename_tags", "ファイル名の設定")))
-        tag_layout = QGridLayout()
+        # Filename Tags Grid
+        layout.addWidget(QLabel(i18n(self.cfg, "settings.filename_tags", "ファイル名のタグ設定")))
+        tag_container = QWidget()
+        tag_layout = QGridLayout(tag_container)
         tag_layout.setContentsMargins(0, 0, 0, 0)
-        tag_layout.setHorizontalSpacing(14)
+        tag_layout.setHorizontalSpacing(10)
         tag_layout.setVerticalSpacing(10)
         tags = [
             (i18n(self.cfg, "settings.tag_title", "タイトル"), "%(title)s"),
@@ -1023,27 +1048,46 @@ class Settings(QDialog):
 
         for i, (label, code) in enumerate(tags):
             btn = QPushButton(label)
-            btn.setMinimumHeight(34)
+            btn.setMinimumHeight(36)
             if code == "clear":
                 btn.clicked.connect(lambda: self.template_display.clear())
                 btn.setObjectName("ClearBtn")
             else:
                 btn.clicked.connect(lambda _, c=code: self.add_tag(c))
             tag_layout.addWidget(btn, i // 3, i % 3)
-        layout.addLayout(tag_layout)
+        layout.addWidget(tag_container)
 
+        # Browser for cookies
         layout.addSpacing(8)
+        layout.addWidget(QLabel(i18n(self.cfg, "settings.cookies_browser", "Cookiesを取得するブラウザ")))
+        self.cookies_combo = QComboBox()
+        self.cookies_combo.addItem(i18n(self.cfg, "settings.cookies_none", "使用しない (None)"), "none")
+        self.cookies_combo.addItem("Chrome", "chrome")
+        self.cookies_combo.addItem("Edge", "edge")
+        self.cookies_combo.addItem("Firefox", "firefox")
+        self.cookies_combo.addItem("Opera", "opera")
+        self.cookies_combo.addItem("Vivaldi", "vivaldi")
+        self.cookies_combo.addItem("Brave", "brave")
+        self.cookies_combo.setMinimumHeight(40)
+        c_idx = self.cookies_combo.findData(str(self.cfg.get("cookies_browser", "none")))
+        self.cookies_combo.setCurrentIndex(c_idx if c_idx >= 0 else 0)
+        layout.addWidget(self.cookies_combo)
+
+        layout.addSpacing(10)
         save_btn = QPushButton(i18n(self.cfg, "settings.save", "設定を保存"))
         save_btn.setObjectName("SaveBtn")
-        save_btn.setMinimumHeight(46)
+        save_btn.setMinimumHeight(48)
         save_btn.clicked.connect(self.save)
         layout.addWidget(save_btn)
 
-        layout.addSpacing(10)
+        layout.addSpacing(6)
         version_label = QLabel(f"Version: {VERSION}")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         version_label.setStyleSheet("color: #8e8e93; font-size: 10px;")
         layout.addWidget(version_label)
+
+        scroll.setWidget(scroll_content)
+        main_vbox.addWidget(scroll)
 
         self.apply_style()
 
@@ -1062,6 +1106,7 @@ class Settings(QDialog):
             self.cfg["template"] = self.template_display.text() or "%(title)s"
             self.cfg["path"] = self.parent_win.path_display.text()
             self.cfg["embed_thumbnail"] = self.chk_thumbnail.isChecked()
+            self.cfg["cookies_browser"] = self.cookies_combo.currentData() or "none"
             save_config(self.cfg)
             self.accept()
         except Exception as e:
@@ -1430,10 +1475,33 @@ class Main(QWidget):
         main_layout.addLayout(center_layout)
         main_layout.addStretch()
 
+        self.setAcceptDrops(True)
         self.apply_language_texts()
         self.apply_style()
         QTimer.singleShot(700, self.check_app_update_on_startup)
         QTimer.singleShot(1200, self.check_ytdlp_on_startup)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls() or event.mimeData().hasText():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        url_text = ""
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if urls:
+                url_text = urls[0].toString()
+        elif event.mimeData().hasText():
+            url_text = event.mimeData().text()
+        
+        if url_text:
+            raw = url_text.strip()
+            if raw.lower().startswith("ttps://"):
+                raw = "h" + raw
+            elif raw.lower().startswith("ps://"):
+                raw = "htt" + raw
+            self.url.setText(raw)
+            self.url.setCursorPosition(0)
 
     def apply_style(self):
         self.setStyleSheet(get_stylesheet(self.cfg.get("theme", "dark"), "main"))
