@@ -9,7 +9,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-13, macos-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
         include:
           - os: windows-latest
             executable_name: "Sagami Youtube Downloader.exe"
@@ -19,14 +19,10 @@ jobs:
             executable_name: "Sagami-Youtube-Downloader-Linux-x86_64"
             artifact_name: "Linux-x86_64-Package"
             zip_name: "Sagami-Youtube-Downloader-Linux-x86_64.zip"
-          - os: macos-13
-            executable_name: "Sagami Youtube Downloader"
-            artifact_name: "macOS-x86_64-Package"
-            zip_name: "Sagami-Youtube-Downloader-macOS-x86_64.zip"
           - os: macos-latest
             executable_name: "Sagami Youtube Downloader"
-            artifact_name: "macOS-AppleSilicon-Package"
-            zip_name: "Sagami-Youtube-Downloader-macOS-AppleSilicon.zip"
+            artifact_name: "macOS-Universal-Package"
+            zip_name: "Sagami-Youtube-Downloader-macOS-Universal.zip"
 
     runs-on: ${{ matrix.os }}
 
@@ -101,6 +97,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           pyinstaller --noconfirm --onedir --windowed \
+            --target-arch universal2 \
             --add-data "language:language" \
             --add-binary "yt-dlp:." \
             --add-binary "ffmpeg:." \
@@ -218,16 +215,10 @@ jobs:
           name: Linux-x86_64-Package
           path: release-assets
 
-      - name: Download macOS x86_64 Package
+      - name: Download macOS Universal Package
         uses: actions/download-artifact@v4
         with:
-          name: macOS-x86_64-Package
-          path: release-assets
-
-      - name: Download macOS Apple Silicon Package
-        uses: actions/download-artifact@v4
-        with:
-          name: macOS-AppleSilicon-Package
+          name: macOS-Universal-Package
           path: release-assets
 
       - name: Get Changelog Entry
