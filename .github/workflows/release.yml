@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: [ "v*" ]
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
@@ -60,7 +60,6 @@ jobs:
         run: |
           curl -L -f https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
           curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
-          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
           unzip -o ffmpeg.zip
           unzip -o ffprobe.zip
           chmod +x yt-dlp ffmpeg ffprobe
@@ -70,8 +69,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           curl -L -f https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o yt-dlp
-          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
-          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
+          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-osx-64.zip -o ffprobe.zip
           unzip -o ffmpeg.zip
           unzip -o ffprobe.zip
           chmod +x yt-dlp ffmpeg ffprobe
@@ -200,6 +198,7 @@ jobs:
       - name: Get Version from main.py
         id: meta
         run: |
+          # main.pyからバージョンを取得
           VERSION=$(python3 -c "import re; content = open('main.py', encoding='utf-8').read(); print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', content).group(1))")
           echo "tag_name=v$VERSION" >> $GITHUB_OUTPUT
 
@@ -255,5 +254,7 @@ jobs:
           files: release-assets/**/*
           fail_on_unmatched_files: true
           overwrite_files: true
+          # タグが存在しない場合は、現在のコミットから自動作成する
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
