@@ -37,7 +37,8 @@ jobs:
         id: get_version
         shell: bash
         run: |
-          VERSION=$(grep -oP 'VERSION\s*=\s*"\K[^"]+' main.py)
+          # Pythonを使用してmain.pyからVERSION変数の値を安全に抽出する
+          VERSION=$(python -c "import re; content = open('main.py', encoding='utf-8').read(); print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', content).group(1))")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
           echo "Detected version: $VERSION"
