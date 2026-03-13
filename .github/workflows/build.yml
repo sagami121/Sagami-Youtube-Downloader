@@ -3,6 +3,7 @@ name: Build and Package
 on:
   push:
     branches: [ "main", "master" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
@@ -97,7 +98,6 @@ jobs:
         shell: pwsh
         run: |
           if (!(Test-Path "dist-package")) { New-Item -ItemType Directory "dist-package" }
-          # xcopy is okay, but Copy-Item is more PowerShell-native
           xcopy /E /I /Y "nuitka_dist\main.dist\*" "dist-package\"
           Copy-Item -Path "Sagami Youtube Downloader.ico" -Destination "dist-package\" -Force
 
@@ -156,7 +156,7 @@ jobs:
           $issContent | Out-File -FilePath "generated_installer.iss" -Encoding utf8
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "generated_installer.iss" /O"installer-output"
 
-      - name: Upload Installer (Windows)
+      - name: Upload Installer Artifact (Windows)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
@@ -168,3 +168,64 @@ jobs:
         with:
           name: ${{ matrix.artifact_prefix }}-v${{ steps.get_version.outputs.version }}
           path: dist-package/
+
+  release:
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get Version and Check Tag
+        id: meta
+        run: |
+          VERSION=$(python3 -c "import re; content = open('main.py', encoding='utf-8').read(); print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', content).group(1))")
+          TAG_NAME="v$VERSION"
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all artifacts
+        if: steps.meta.outputs.exists == 'false' || startsWith(github.ref, 'refs/tags/v')
+        uses: actions/download-artifact@v4
+
+      - name: Get Changelog Entry
+        if: steps.meta.outputs.exists == 'false' || startsWith(github.ref, 'refs/tags/v')
+        id: get_changelog
+        run: |
+          python3 -c "
+          import os
+          content = open('changelog.txt', encoding='utf-8').read()
+          lines = content.splitlines()
+          block = []
+          for line in lines:
+              if line.strip():
+                  block.append(line.rstrip())
+              elif block:
+                  break
+          with open('release_notes.md', 'w', encoding='utf-8') as f:
+              f.write('\n'.join(block))
+          "
+      
+      - name: Create Release
+        if: steps.meta.outputs.exists == 'false' || startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: Release ${{ steps.meta.outputs.tag_name }}
+          body_path: release_notes.md
+          files: |
+            Sagami-Youtube-Downloader-Installer-v*/*.exe
+            Sagami-Youtube-Downloader-Windows-v*/*
+            Sagami-Youtube-Downloader-Linux-v*/*
+            Sagami-Youtube-Downloader-macOS-v*/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
