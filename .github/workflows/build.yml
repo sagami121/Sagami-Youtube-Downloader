@@ -16,13 +16,13 @@ jobs:
         include:
           - os: windows-latest
             executable_name: "Sagami Youtube Downloader.exe"
-            artifact_name: "Windows-Binaries"
+            artifact_name: "Windows-Installer"
           - os: ubuntu-latest
             executable_name: "Sagami Youtube Downloader"
-            artifact_name: "Linux-Binaries"
+            artifact_name: "Linux-Package"
           - os: macos-latest
             executable_name: "Sagami Youtube Downloader"
-            artifact_name: "macOS-Binaries"
+            artifact_name: "macOS-Package"
 
     runs-on: ${{ matrix.os }}
 
@@ -106,7 +106,6 @@ jobs:
         run: |
           mkdir -p dist-package
           cp -r dist/"${{ matrix.executable_name }}"/* dist-package/
-          # Linux/Macは一つのzipにまとめる
           zip -r "Sagami-Youtube-Downloader-${{ matrix.os }}.zip" dist-package/
 
       - name: Build Inno Setup Installer (Windows)
@@ -158,25 +157,13 @@ jobs:
           $issContent | Out-File -FilePath "generated_installer.iss" -Encoding utf8
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "generated_installer.iss" /O"installer-output"
 
-      - name: Upload Installer Artifact (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: Windows-Installer
-          path: installer-output/*.exe
-
-      - name: Upload Zip Artifact (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: "*.zip"
-
-      - name: Upload Binaries (Fallback)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Raw-Binaries-${{ matrix.os }}
-          path: dist-package/
+          path: |
+            installer-output/*.exe
+            *.zip
 
   release:
     needs: build
@@ -189,18 +176,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get Version and Check Tag
+      - name: Get Version from main.py
         id: meta
         run: |
           VERSION=$(python3 -c "import re; content = open('main.py', encoding='utf-8').read(); print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', content).group(1))")
-          TAG_NAME="v$VERSION"
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
-          
-          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
+          echo "tag_name=v$VERSION" >> $GITHUB_OUTPUT
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -212,16 +192,20 @@ jobs:
         run: |
           python3 -c "
           import os
-          content = open('changelog.txt', encoding='utf-8').read()
-          lines = content.splitlines()
-          block = []
-          for line in lines:
-              if line.strip():
-                  block.append(line.rstrip())
-              elif block:
-                  break
-          with open('release_notes.md', 'w', encoding='utf-8') as f:
-              f.write('\n'.join(block))
+          try:
+              content = open('changelog.txt', encoding='utf-8').read()
+              lines = content.splitlines()
+              block = []
+              for line in lines:
+                  if line.strip():
+                      block.append(line.rstrip())
+                  elif block:
+                      break
+              with open('release_notes.md', 'w', encoding='utf-8') as f:
+                  f.write('\n'.join(block))
+          except Exception:
+              with open('release_notes.md', 'w', encoding='utf-8') as f:
+                  f.write('Automatic release')
           "
       
       - name: Create or Update Release
@@ -231,9 +215,10 @@ jobs:
           name: Release ${{ steps.meta.outputs.tag_name }}
           body_path: release_notes.md
           files: |
-            release-files/**/*.exe
-            release-files/**/*.zip
-          fail_on_unmatched_files: false
-          generate_release_notes: true
+            release-files/Windows-Installer/*.exe
+            release-files/Linux-Package/*.zip
+            release-files/macOS-Package/*.zip
+          fail_on_unmatched_files: true
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
