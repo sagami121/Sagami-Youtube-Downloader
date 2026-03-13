@@ -38,10 +38,11 @@ jobs:
           python-version: '3.10'
 
       - name: Get Version from main.py
+        id: get_version
         shell: bash
         run: |
-          # VERSION = "x.x.x" の形式から数字部分を抽出
           VERSION=$(grep -oP 'VERSION\s*=\s*"\K[^"]+' main.py)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
           echo "Detected version: $VERSION"
 
@@ -105,7 +106,6 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # main.pyから取得したバージョン環境変数 $env:APP_VERSION を使用
           $targetPath = (Resolve-Path "dist-package").Path
           $issContent = @"
           [Setup]
@@ -148,21 +148,18 @@ jobs:
           Type: dirifempty; Name: "{userappdata}\SagamiYoutubeDownloader"
           "@
           
-          # UTF-8 (BOM付き) で保存
           $issContent | Out-File -FilePath "generated_installer.iss" -Encoding utf8
-          
-          # ISCC.exe を実行
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "generated_installer.iss" /O"installer-output"
 
       - name: Upload Installer (Windows)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: Sagami-Youtube-Downloader-Installer-v${{ env.APP_VERSION }}
+          name: Sagami-Youtube-Downloader-Installer-v${{ steps.get_version.outputs.version }}
           path: Sagami youtube Downloader/installer-output/*.exe
 
       - name: Upload Binaries Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_prefix }}-v${{ env.APP_VERSION }}
+          name: ${{ matrix.artifact_prefix }}-v${{ steps.get_version.outputs.version }}
           path: Sagami youtube Downloader/dist-package/
