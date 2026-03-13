@@ -52,6 +52,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pyinstaller
 
       - name: Prepare binaries (Linux)
         if: runner.os == 'Linux'
@@ -80,10 +81,16 @@ jobs:
         run: |
           python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico="Sagami Youtube Downloader.ico" --output-dir="nuitka_dist" --output-filename="${{ matrix.executable_name }}" --include-data-file="Sagami Youtube Downloader.ico=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language main.py
 
-      - name: Build with Nuitka (Linux/macOS)
+      - name: Build with PyInstaller (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
-          python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyqt6 --output-dir="nuitka_dist" --output-filename="${{ matrix.executable_name }}" --include-data-file=yt-dlp=yt-dlp --include-data-file=ffmpeg=ffmpeg --include-data-file=ffprobe=ffprobe --include-data-dir=language=language main.py
+          pyinstaller --noconfirm --onedir --windowed \
+            --add-data "language:language" \
+            --add-data "yt-dlp:." \
+            --add-data "ffmpeg:." \
+            --add-data "ffprobe:." \
+            --name "${{ matrix.executable_name }}" \
+            main.py
 
       - name: Package artifacts (Windows)
         if: runner.os == 'Windows'
@@ -96,7 +103,7 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist-package
-          cp -r nuitka_dist/main.dist/* dist-package/
+          cp -r dist/"${{ matrix.executable_name }}"/* dist-package/
 
       - name: Build Inno Setup Installer (Windows)
         if: runner.os == 'Windows'

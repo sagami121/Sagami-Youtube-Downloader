@@ -178,8 +178,15 @@ def lerp_color(start_color, end_color, progress):
 
 def get_config_path() -> Path:
     if is_packaged_executable():
-        # EXEとして実行されている場合はユーザー領域に保存
-        base_dir = Path(os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+        # パッケージ化されている場合はOSごとの標準的なユーザー領域に保存
+        if os.name == "nt":
+            base_dir = Path(os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+        elif sys.platform == "darwin":
+            base_dir = Path.home() / "Library" / "Application Support"
+        else:
+            # Linux (XDG)
+            base_dir = Path(os.getenv("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+        
         cfg_dir = base_dir / CONFIG_DIR_NAME
         cfg_dir.mkdir(parents=True, exist_ok=True)
         return cfg_dir / "config.json"
