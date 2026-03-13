@@ -182,10 +182,23 @@ jobs:
           VERSION=$(python3 -c "import re; content = open('main.py', encoding='utf-8').read(); print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', content).group(1))")
           echo "tag_name=v$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Download all artifacts
+      - name: Download Windows Installer
         uses: actions/download-artifact@v4
         with:
-          path: release-files
+          name: Windows-Installer
+          path: release-assets
+
+      - name: Download Linux Package
+        uses: actions/download-artifact@v4
+        with:
+          name: Linux-Package
+          path: release-assets
+
+      - name: Download macOS Package
+        uses: actions/download-artifact@v4
+        with:
+          name: macOS-Package
+          path: release-assets
 
       - name: Get Changelog Entry
         id: get_changelog
@@ -214,10 +227,7 @@ jobs:
           tag_name: ${{ steps.meta.outputs.tag_name }}
           name: Release ${{ steps.meta.outputs.tag_name }}
           body_path: release_notes.md
-          files: |
-            release-files/Windows-Installer/*.exe
-            release-files/Linux-Package/*.zip
-            release-files/macOS-Package/*.zip
+          files: release-assets/**/*
           fail_on_unmatched_files: true
           overwrite: true
         env:
