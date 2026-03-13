@@ -16,13 +16,13 @@ jobs:
         include:
           - os: windows-latest
             executable_name: "Sagami Youtube Downloader.exe"
-            artifact_prefix: "Sagami-Youtube-Downloader-Windows"
+            artifact_name: "Windows-Binaries"
           - os: ubuntu-latest
             executable_name: "Sagami Youtube Downloader"
-            artifact_prefix: "Sagami-Youtube-Downloader-Linux"
+            artifact_name: "Linux-Binaries"
           - os: macos-latest
             executable_name: "Sagami Youtube Downloader"
-            artifact_prefix: "Sagami-Youtube-Downloader-macOS"
+            artifact_name: "macOS-Binaries"
 
     runs-on: ${{ matrix.os }}
 
@@ -106,6 +106,8 @@ jobs:
         run: |
           mkdir -p dist-package
           cp -r dist/"${{ matrix.executable_name }}"/* dist-package/
+          # Linux/Macは一つのzipにまとめる
+          zip -r "Sagami-Youtube-Downloader-${{ matrix.os }}.zip" dist-package/
 
       - name: Build Inno Setup Installer (Windows)
         if: runner.os == 'Windows'
@@ -160,13 +162,20 @@ jobs:
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: Sagami-Youtube-Downloader-Installer-v${{ steps.get_version.outputs.version }}
+          name: Windows-Installer
           path: installer-output/*.exe
 
-      - name: Upload Binaries Artifact
+      - name: Upload Zip Artifact (Linux/macOS)
+        if: runner.os != 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_prefix }}-v${{ steps.get_version.outputs.version }}
+          name: ${{ matrix.artifact_name }}
+          path: "*.zip"
+
+      - name: Upload Binaries (Fallback)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Raw-Binaries-${{ matrix.os }}
           path: dist-package/
 
   release:
@@ -194,11 +203,11 @@ jobs:
           fi
 
       - name: Download all artifacts
-        if: steps.meta.outputs.exists == 'false' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/download-artifact@v4
+        with:
+          path: release-files
 
       - name: Get Changelog Entry
-        if: steps.meta.outputs.exists == 'false' || startsWith(github.ref, 'refs/tags/v')
         id: get_changelog
         run: |
           python3 -c "
@@ -215,17 +224,16 @@ jobs:
               f.write('\n'.join(block))
           "
       
-      - name: Create Release
-        if: steps.meta.outputs.exists == 'false' || startsWith(github.ref, 'refs/tags/v')
+      - name: Create or Update Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag_name }}
           name: Release ${{ steps.meta.outputs.tag_name }}
           body_path: release_notes.md
           files: |
-            Sagami-Youtube-Downloader-Installer-v*/*.exe
-            Sagami-Youtube-Downloader-Windows-v*/*
-            Sagami-Youtube-Downloader-Linux-v*/*
-            Sagami-Youtube-Downloader-macOS-v*/*
+            release-files/**/*.exe
+            release-files/**/*.zip
+          fail_on_unmatched_files: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
