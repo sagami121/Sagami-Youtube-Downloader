@@ -37,7 +37,6 @@ jobs:
         id: get_version
         shell: bash
         run: |
-          # Pythonを使用してmain.pyからVERSION変数の値を安全に抽出する
           VERSION=$(python -c "import re; content = open('main.py', encoding='utf-8').read(); print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', content).group(1))")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
@@ -57,22 +56,22 @@ jobs:
       - name: Prepare binaries (Linux)
         if: runner.os == 'Linux'
         run: |
-          curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
-          curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffmpeg-6.1-linux-64.zip -o ffmpeg.zip
-          curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip -o ffprobe.zip
-          unzip ffmpeg.zip
-          unzip ffprobe.zip
+          curl -L -f https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
+          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-linux-64.zip -o ffmpeg.zip
+          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
+          unzip -o ffmpeg.zip
+          unzip -o ffprobe.zip
           chmod +x yt-dlp ffmpeg ffprobe
           rm ffmpeg.zip ffprobe.zip
 
       - name: Prepare binaries (macOS)
         if: runner.os == 'macOS'
         run: |
-          curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o yt-dlp
-          curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffmpeg-6.1-osx-64.zip -o ffmpeg.zip
-          curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-osx-64.zip -o ffprobe.zip
-          unzip ffmpeg.zip
-          unzip ffprobe.zip
+          curl -L -f https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o yt-dlp
+          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-osx-64.zip -o ffmpeg.zip
+          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-osx-64.zip -o ffprobe.zip
+          unzip -o ffmpeg.zip
+          unzip -o ffprobe.zip
           chmod +x yt-dlp ffmpeg ffprobe
           rm ffmpeg.zip ffprobe.zip
 
