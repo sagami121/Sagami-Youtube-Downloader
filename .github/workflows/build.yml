@@ -18,9 +18,10 @@ jobs:
             executable_name: "Sagami Youtube Downloader.exe"
             artifact_name: "Windows-Installer"
           - os: ubuntu-latest
-            executable_name: "Sagami Youtube Downloader"
+            executable_name: "Sagami-Youtube-Downloader-Linux"
             artifact_name: "Linux-Package"
           - os: macos-latest
+            # Macはスペースを含めた正式な名前にします
             executable_name: "Sagami Youtube Downloader"
             artifact_name: "macOS-Package"
 
@@ -80,18 +81,34 @@ jobs:
       - name: Build with Nuitka (Windows)
         if: runner.os == 'Windows'
         run: |
-          python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico="Sagami Youtube Downloader.ico" --output-dir="nuitka_dist" --output-filename="${{ matrix.executable_name }}" --include-data-file="Sagami Youtube Downloader.ico=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language main.py
+          python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico="Sagami Youtube Downloader.ico" --output-dir="nuitka_dist" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="Sagami Youtube Downloader.ico=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language main.py
 
-      - name: Build with PyInstaller (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Build with PyInstaller (Linux)
+        if: runner.os == 'Linux'
         run: |
-          pyinstaller --noconfirm --onedir --windowed \
+          pyinstaller --noconfirm --onefile --windowed \
             --add-data "language:language" \
-            --add-data "yt-dlp:." \
-            --add-data "ffmpeg:." \
-            --add-data "ffprobe:." \
+            --add-binary "yt-dlp:." \
+            --add-binary "ffmpeg:." \
+            --add-binary "ffprobe:." \
             --name "${{ matrix.executable_name }}" \
             main.py
+
+      - name: Build with PyInstaller (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Macは正しい .app 形式にするため --onedir (デフォルト) を使用
+          pyinstaller --noconfirm --onedir --windowed \
+            --add-data "language:language" \
+            --add-binary "yt-dlp:." \
+            --add-binary "ffmpeg:." \
+            --add-binary "ffprobe:." \
+            --name "${{ matrix.executable_name }}" \
+            main.py
+          
+          # .app フォルダ内の全ファイルに再帰的に署名を施す
+          find "dist/${{ matrix.executable_name }}.app" -type f \( -name "*.so" -o -name "*.dylib" -o -name "python" -o -name "${{ matrix.executable_name }}" \) -exec codesign --force --sign - {} \;
+          codesign --force --deep --sign - "dist/${{ matrix.executable_name }}.app"
 
       - name: Package artifacts (Windows)
         if: runner.os == 'Windows'
@@ -101,12 +118,31 @@ jobs:
           xcopy /E /I /Y "nuitka_dist\main.dist\*" "dist-package\"
           Copy-Item -Path "Sagami Youtube Downloader.ico" -Destination "dist-package\" -Force
 
-      - name: Package artifacts (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Package artifacts (Linux)
+        if: runner.os == 'Linux'
         run: |
           mkdir -p dist-package
-          cp -r dist/"${{ matrix.executable_name }}"/* dist-package/
-          zip -r "Sagami-Youtube-Downloader-${{ matrix.os }}.zip" dist-package/
+          cp dist/"${{ matrix.executable_name }}" dist-package/
+          echo "Linuxで実行するには:" > dist-package/README_Linux.txt
+          echo "1. ターミナルを開く" >> dist-package/README_Linux.txt
+          echo "2. chmod +x ./${{ matrix.executable_name }} を実行" >> dist-package/README_Linux.txt
+          echo "3. ./${{ matrix.executable_name }} で起動" >> dist-package/README_Linux.txt
+          zip -j "Sagami-Youtube-Downloader-Linux.zip" dist-package/*
+
+      - name: Package artifacts (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist-package
+          # 正式な .app フォルダをコピー
+          cp -r "dist/${{ matrix.executable_name }}.app" dist-package/
+          
+          echo "macOSで実行するには:" > dist-package/README_macOS.txt
+          echo "1. アプリを右クリックして「開く」を選択してください。" >> dist-package/README_macOS.txt
+          echo "2. ブロックされる場合は「システム設定 > プライバシーとセキュリティ」で許可するか、" >> dist-package/README_macOS.txt
+          echo "   以下をターミナルで実行してください:" >> dist-package/README_macOS.txt
+          echo "   sudo xattr -cr \"${{ matrix.executable_name }}.app\"" >> dist-package/README_macOS.txt
+          
+          zip -r "Sagami-Youtube-Downloader-macOS.zip" dist-package/
 
       - name: Build Inno Setup Installer (Windows)
         if: runner.os == 'Windows'

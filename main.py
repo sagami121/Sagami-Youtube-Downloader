@@ -16,44 +16,44 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler
 from PyQt6.QtGui import QFont, QIcon, QDesktopServices
 
-VERSION = "1.5.2"
+VERSION = "1.5.3"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
 
 def is_packaged_executable() -> bool:
+    """パッケージ化（EXE/App/Bin）されているか判定"""
     if getattr(sys, "frozen", False):
         return True
     if "__compiled__" in globals():
         return True
     if hasattr(sys, "_MEIPASS"):
         return True
-    argv0 = sys.argv[0] if sys.argv else ""
-    return Path(argv0).suffix.lower() == ".exe"
+    return False
 
 def get_runtime_app_dir() -> Path:
-    return Path(sys.executable).parent if is_packaged_executable() else Path(__file__).parent
+    """実行ファイルまたはスクリプトの配置ディレクトリを取得"""
+    if is_packaged_executable():
+        # macOS .app の場合は Contents/MacOS に実行ファイルがあるため、その親の親がリソースディレクトリになる場合があるが、
+        # PyInstaller/Nuitkaの標準的な動作に合わせる
+        return Path(sys.executable).parent
+    return Path(__file__).parent
 
 def get_runtime_launch_target(app_dir: Path) -> Path:
+    """自分自身の実行パスを取得（再起動用など）"""
     if not is_packaged_executable():
         return (app_dir / "main.py").resolve()
-
-    argv0 = Path(sys.argv[0]).resolve() if sys.argv else Path(sys.executable).resolve()
-    if argv0.suffix.lower() == ".exe" and argv0.exists() and argv0.name.lower() != "python.exe":
-        return argv0
-
-    preferred = app_dir / "Sagami Youtube Downloader.exe"
-    if preferred.exists():
-        return preferred.resolve()
-
-    fallback = Path(sys.executable).resolve()
-    return fallback
+    return Path(sys.executable).resolve()
 
 def resolve_app_icon_path():
+    """OSに合わせたアイコンパスを解決"""
     app_dir = get_runtime_app_dir()
-    candidates = (
+    # Windows用ico, または汎用png
+    candidates = [
         app_dir / "Sagami Youtube Downloader.ico",
-    )
+        app_dir / "icon.png",
+        app_dir / "assets" / "icon.png"
+    ]
     for icon_path in candidates:
         if icon_path.exists():
             return icon_path
