@@ -426,6 +426,10 @@ def load_config():
                 cfg["app_update_source_url"] = ""
             if "cookies_browser" not in cfg:
                 cfg["cookies_browser"] = "none"
+            if "proxy_url" not in cfg:
+                cfg["proxy_url"] = ""
+            if "embed_subtitles" not in cfg:
+                cfg["embed_subtitles"] = False
             return cfg
     except (FileNotFoundError, json.JSONDecodeError):
         defaults = {
@@ -441,6 +445,8 @@ def load_config():
             "time_range_input": "",
             "app_update_source_url": "",
             "cookies_browser": "none",
+            "proxy_url": "",
+            "embed_subtitles": False,
         }
         try:
             save_config(defaults)
@@ -1029,6 +1035,18 @@ class Settings(QDialog):
         self.chk_thumbnail = QCheckBox(i18n(self.cfg, "settings.embed_thumbnail", "MP4に動画のサムネイルを埋め込む"))
         self.chk_thumbnail.setChecked(self.cfg.get("embed_thumbnail", False))
         layout.addWidget(self.chk_thumbnail)
+
+        self.chk_subtitles = QCheckBox(i18n(self.cfg, "settings.embed_subtitles", "字幕を埋め込む (利用可能な場合)"))
+        self.chk_subtitles.setChecked(self.cfg.get("embed_subtitles", False))
+        layout.addWidget(self.chk_subtitles)
+
+        # Proxy Settings
+        layout.addSpacing(4)
+        layout.addWidget(QLabel(i18n(self.cfg, "settings.proxy", "プロキシ設定 (Proxy URL)")))
+        self.proxy_input = QLineEdit()
+        self.proxy_input.setPlaceholderText("http://user:pass@host:port")
+        self.proxy_input.setText(self.cfg.get("proxy_url", ""))
+        layout.addWidget(self.proxy_input)
 
         # Filename Template
         layout.addSpacing(4)

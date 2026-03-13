@@ -3,7 +3,6 @@ name: Build and Package
 on:
   push:
     branches: [ "main", "master" ]
-    tags: [ "v*" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
@@ -12,18 +11,24 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest, macos-13, macos-latest]
         include:
           - os: windows-latest
             executable_name: "Sagami Youtube Downloader.exe"
-            artifact_name: "Windows-Installer"
+            artifact_name: "Windows-x64-Installer"
+            zip_name: "Sagami-Youtube-Downloader-Windows-x64.zip"
           - os: ubuntu-latest
-            executable_name: "Sagami-Youtube-Downloader-Linux"
-            artifact_name: "Linux-Package"
-          - os: macos-latest
-            # Macはスペースを含めた正式な名前にします
+            executable_name: "Sagami-Youtube-Downloader-Linux-x86_64"
+            artifact_name: "Linux-x86_64-Package"
+            zip_name: "Sagami-Youtube-Downloader-Linux-x86_64.zip"
+          - os: macos-13
             executable_name: "Sagami Youtube Downloader"
-            artifact_name: "macOS-Package"
+            artifact_name: "macOS-x86_64-Package"
+            zip_name: "Sagami-Youtube-Downloader-macOS-x86_64.zip"
+          - os: macos-latest
+            executable_name: "Sagami Youtube Downloader"
+            artifact_name: "macOS-AppleSilicon-Package"
+            zip_name: "Sagami-Youtube-Downloader-macOS-AppleSilicon.zip"
 
     runs-on: ${{ matrix.os }}
 
@@ -33,7 +38,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.13'
 
       - name: Get Version from main.py
         id: get_version
@@ -61,7 +66,7 @@ jobs:
         run: |
           curl -L -f https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
           curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-linux-64.zip -o ffmpeg.zip
-          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
+          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffmprobe.zip
           unzip -o ffmpeg.zip
           unzip -o ffprobe.zip
           chmod +x yt-dlp ffmpeg ffprobe
@@ -127,7 +132,7 @@ jobs:
           echo "1. ターミナルを開く" >> dist-package/README_Linux.txt
           echo "2. chmod +x ./${{ matrix.executable_name }} を実行" >> dist-package/README_Linux.txt
           echo "3. ./${{ matrix.executable_name }} で起動" >> dist-package/README_Linux.txt
-          zip -j "Sagami-Youtube-Downloader-Linux.zip" dist-package/*
+          zip -j "${{ matrix.zip_name }}" dist-package/*
 
       - name: Package artifacts (macOS)
         if: runner.os == 'macOS'
@@ -142,7 +147,7 @@ jobs:
           echo "   以下をターミナルで実行してください:" >> dist-package/README_macOS.txt
           echo "   sudo xattr -cr \"${{ matrix.executable_name }}.app\"" >> dist-package/README_macOS.txt
           
-          zip -r "Sagami-Youtube-Downloader-macOS.zip" dist-package/
+          zip -r "${{ matrix.zip_name }}" dist-package/
 
       - name: Build Inno Setup Installer (Windows)
         if: runner.os == 'Windows'
@@ -200,71 +205,3 @@ jobs:
           path: |
             installer-output/*.exe
             *.zip
-
-  release:
-    needs: build
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Get Version from main.py
-        id: meta
-        run: |
-          VERSION=$(python3 -c "import re; content = open('main.py', encoding='utf-8').read(); print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', content).group(1))")
-          echo "tag_name=v$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Download Windows Installer
-        uses: actions/download-artifact@v4
-        with:
-          name: Windows-Installer
-          path: release-assets
-
-      - name: Download Linux Package
-        uses: actions/download-artifact@v4
-        with:
-          name: Linux-Package
-          path: release-assets
-
-      - name: Download macOS Package
-        uses: actions/download-artifact@v4
-        with:
-          name: macOS-Package
-          path: release-assets
-
-      - name: Get Changelog Entry
-        id: get_changelog
-        run: |
-          python3 -c "
-          import os
-          try:
-              content = open('changelog.txt', encoding='utf-8').read()
-              lines = content.splitlines()
-              block = []
-              for line in lines:
-                  if line.strip():
-                      block.append(line.rstrip())
-                  elif block:
-                      break
-              with open('release_notes.md', 'w', encoding='utf-8') as f:
-                  f.write('\n'.join(block))
-          except Exception:
-              with open('release_notes.md', 'w', encoding='utf-8') as f:
-                  f.write('Automatic release')
-          "
-      
-      - name: Create or Update Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.meta.outputs.tag_name }}
-          name: Release ${{ steps.meta.outputs.tag_name }}
-          body_path: release_notes.md
-          files: release-assets/**/*
-          fail_on_unmatched_files: true
-          overwrite: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
