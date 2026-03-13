@@ -59,6 +59,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           curl -L -f https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
+          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-linux-64.zip -o ffmpeg.zip
           curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
           unzip -o ffmpeg.zip
           unzip -o ffprobe.zip
@@ -69,6 +70,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           curl -L -f https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o yt-dlp
+          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-osx-64.zip -o ffmpeg.zip
           curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-osx-64.zip -o ffprobe.zip
           unzip -o ffmpeg.zip
           unzip -o ffprobe.zip
