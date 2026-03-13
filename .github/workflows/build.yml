@@ -11,7 +11,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-12, macos-latest]
+        os: [windows-latest, ubuntu-latest, macos-13, macos-latest]
         include:
           - os: windows-latest
             executable_name: "Sagami Youtube Downloader.exe"
@@ -21,7 +21,7 @@ jobs:
             executable_name: "Sagami-Youtube-Downloader-Linux-x86_64"
             artifact_name: "Linux-x86_64-Package"
             zip_name: "Sagami-Youtube-Downloader-Linux-x86_64.zip"
-          - os: macos-12
+          - os: macos-13
             executable_name: "Sagami Youtube Downloader"
             artifact_name: "macOS-x86_64-Package"
             zip_name: "Sagami-Youtube-Downloader-macOS-x86_64.zip"
