@@ -94,10 +94,12 @@ jobs:
 
       - name: Package artifacts (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
           if (!(Test-Path "dist-package")) { New-Item -ItemType Directory "dist-package" }
+          # xcopy is okay, but Copy-Item is more PowerShell-native
           xcopy /E /I /Y "nuitka_dist\main.dist\*" "dist-package\"
-          copy /Y "Sagami Youtube Downloader.ico" "dist-package\"
+          Copy-Item -Path "Sagami Youtube Downloader.ico" -Destination "dist-package\" -Force
 
       - name: Package artifacts (Linux/macOS)
         if: runner.os != 'Windows'
