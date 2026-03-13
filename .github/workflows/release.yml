@@ -9,7 +9,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-13, macos-latest]
+        os: [windows-latest, ubuntu-latest, macos-12, macos-latest]
         include:
           - os: windows-latest
             executable_name: "Sagami Youtube Downloader.exe"
@@ -19,7 +19,7 @@ jobs:
             executable_name: "Sagami-Youtube-Downloader-Linux-x86_64"
             artifact_name: "Linux-x86_64-Package"
             zip_name: "Sagami-Youtube-Downloader-Linux-x86_64.zip"
-          - os: macos-13
+          - os: macos-12
             executable_name: "Sagami Youtube Downloader"
             artifact_name: "macOS-x86_64-Package"
             zip_name: "Sagami-Youtube-Downloader-macOS-x86_64.zip"
@@ -63,7 +63,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           curl -L -f https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
-          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-linux-64.zip -o ffmpeg.zip
+          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
           curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
           unzip -o ffmpeg.zip
           unzip -o ffprobe.zip
@@ -74,8 +74,8 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           curl -L -f https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o yt-dlp
-          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-osx-64.zip -o ffmpeg.zip
-          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-osx-64.zip -o ffprobe.zip
+          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
+          curl -L -f https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
           unzip -o ffmpeg.zip
           unzip -o ffprobe.zip
           chmod +x yt-dlp ffmpeg ffprobe
