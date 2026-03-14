@@ -85,6 +85,12 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller nuitka
 
+      - name: Install Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup -y
+
       - name: Prepare binaries (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -160,6 +166,61 @@ jobs:
           xcopy /E /I /Y "nuitka_dist\main.dist\*" "dist-package\"
           Copy-Item -Path "Sagami Youtube Downloader.ico" -Destination "dist-package\" -Force
 
+      - name: Create Inno Setup Script (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $issContent = @"
+          [Setup]
+          AppId={{D6C8E8C6-9E50-4F2E-A8E0-7C34A3F6D1B2}}
+          AppName=Sagami Youtube Downloader
+          AppVersion=${{ steps.get_version.outputs.version }}
+          AppPublisher=sagami121
+          AppPublisherURL=https://github.com/sagami121/Sagami-Youtube-Downloader
+          DefaultDirName={autopf}\Sagami Youtube Downloader
+          DefaultGroupName=Sagami Youtube Downloader
+          OutputBaseFilename=SagamiYoutubeDownloader_v${{ steps.get_version.outputs.version }}_Setup
+          OutputDir=installer-output
+          UninstallDisplayIcon={app}\Sagami Youtube Downloader.exe
+          CreateUninstallRegKey=yes
+          DisableDirPage=no
+          UsePreviousAppDir=no
+          PrivilegesRequired=admin
+          UsedUserAreasWarning=no
+          CloseApplications=yes
+
+          [Tasks]
+          Name: "desktopicon"; Description: "デスクトップにショートカットを作成"; GroupDescription: "追加アイコン:"; Flags: unchecked
+
+          [Languages]
+          Name: "ja"; MessagesFile: "compiler:Languages\Japanese.isl"
+
+          [Files]
+          Source: "dist-package\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+          [Icons]
+          Name: "{autoprograms}\Sagami Youtube Downloader"; Filename: "{app}\Sagami Youtube Downloader.exe"
+          Name: "{autodesktop}\Sagami Youtube Downloader"; Filename: "{app}\Sagami Youtube Downloader.exe"; Tasks: desktopicon
+
+          [Run]
+          Filename: "{app}\Sagami Youtube Downloader.exe"; Description: "Sagami Youtube Downloader を実行する"; Flags: nowait postinstall skipifsilent
+
+          [UninstallDelete]
+          Type: filesandordirs; Name: "{app}\*"
+          Type: dirifempty; Name: "{app}"
+          Type: filesandordirs; Name: "{userappdata}\SagamiYoutubeDownloader\*"
+          Type: dirifempty; Name: "{userappdata}\SagamiYoutubeDownloader"
+          "@
+          $issContent | Out-File -FilePath "installer.iss" -Encoding utf8
+
+      - name: Build Inno Setup Installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (!(Test-Path "installer-output")) { New-Item -ItemType Directory "installer-output" }
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\\ISCC.exe"
+          & $iscc installer.iss
+
       - name: Package artifacts (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -201,6 +262,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-assets
+          merge-multiple: true
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -208,6 +270,6 @@ jobs:
           tag_name: ${{ steps.meta.outputs.tag_name }}
           name: Release ${{ steps.meta.outputs.tag_name }}
           generate_release_notes: true
-          files: release-assets/**/*
+          files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
