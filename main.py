@@ -13,10 +13,10 @@ import ssl
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtWidgets import *
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler, QEvent
 from PyQt6.QtGui import QFont, QIcon, QDesktopServices
 
-VERSION = "1.5.3"
+VERSION = "1.6"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
@@ -80,7 +80,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QFrame#Card { background-color: #f5f5f7; border-radius: 24px; border: 1px solid #d5d5d7; }
             QLabel { color: #333333; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }
             QLabel#Title { color: #000000; font-size: 24px; font-weight: 200; margin-left: 0px; }
-            QLineEdit, QComboBox { border: 1px solid #d5d5d7; padding: 10px 12px; border-radius: 10px; background: #ffffff; color: #000000; font-size: 14px; }
+            QLineEdit, QComboBox { border: 1px solid #d5d5d7; border-bottom: 2px solid #d5d5d7; padding: 8px 12px 8px 12px; border-radius: 10px; background: #ffffff; background-clip: padding; color: #000000; font-size: 14px; }
             QLineEdit#PathDisplay { color: #111111; font-size: 15px; font-weight: 500; }
             QLineEdit:focus, QComboBox:focus { border: 1px solid #d5d5d7; border-bottom: 2px solid #0a84ff; }
             QComboBox::drop-down { border: none; width: 22px; }
@@ -110,7 +110,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QDialog { background: #ffffff; }
             QLabel { color: #333333; font-size: 13px; font-weight: bold; }
             QCheckBox { color: #333333; font-size: 13px; }
-            QLineEdit { border: 1px solid #d5d5d7; padding: 10px 12px; border-radius: 10px; background: #ffffff; color: #000000; font-family: 'Consolas'; font-size: 14px; }
+            QLineEdit { border: 1px solid #d5d5d7; border-bottom: 2px solid #d5d5d7; padding: 8px 12px 8px 12px; border-radius: 10px; background: #ffffff; background-clip: padding; color: #000000; font-family: 'Consolas'; font-size: 14px; }
             QLineEdit:focus { border: 1px solid #d5d5d7; border-bottom: 2px solid #0a84ff; }
             QPushButton { background-color: #e8e8ea; color: #000000; border-radius: 10px; border: none; font-size: 13px; padding: 2px; }
             QPushButton:hover { background-color: #d5d5d7; }
@@ -125,7 +125,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QFrame#Card { background-color: #1c1c1e; border-radius: 24px; border: 1px solid #2c2c2e; }
             QLabel { color: #8e8e93; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }
             QLabel#Title { color: #ffffff; font-size: 24px; font-weight: 200; margin-left: 0px; }
-            QLineEdit, QComboBox { border: 1px solid #3a3a3c; padding: 10px 12px; border-radius: 10px; background: #2c2c2e; color: #ffffff; font-size: 14px; }
+            QLineEdit, QComboBox { border: 1px solid #3a3a3c; border-bottom: 2px solid #3a3a3c; padding: 8px 12px 8px 12px; border-radius: 10px; background: #2c2c2e; background-clip: padding; color: #ffffff; font-size: 14px; }
             QLineEdit#PathDisplay { color: #f2f2f7; font-size: 15px; font-weight: 500; }
             QLineEdit:focus, QComboBox:focus { border: 1px solid #3a3a3c; border-bottom: 2px solid #0a84ff; }
             QComboBox::drop-down { border: none; width: 22px; }
@@ -155,7 +155,7 @@ def get_stylesheet(theme="dark", widget_type="main"):
             QDialog { background: #1c1c1e; }
             QLabel { color: #ffffff; font-size: 13px; font-weight: bold; }
             QCheckBox { color: #ffffff; font-size: 13px; }
-            QLineEdit { border: 1px solid #3a3a3c; padding: 10px 12px; border-radius: 10px; background: #2c2c2e; color: #0a84ff; font-family: 'Consolas'; font-size: 14px; }
+            QLineEdit { border: 1px solid #3a3a3c; border-bottom: 2px solid #3a3a3c; padding: 8px 12px 8px 12px; border-radius: 10px; background: #2c2c2e; background-clip: padding; color: #0a84ff; font-family: 'Consolas'; font-size: 14px; }
             QLineEdit:focus { border: 1px solid #3a3a3c; border-bottom: 2px solid #0a84ff; }
             QPushButton { background-color: #2c2c2e; color: white; border-radius: 10px; border: 1px solid #3a3a3c; font-size: 13px; padding: 2px; }
             QPushButton:hover { background-color: #3a3a3c; }
@@ -502,6 +502,7 @@ class DownloadThread(QThread):
         self._thumbnail_webps = set()
         self._existing_webps = set()
         self._run_started_ts = None
+        self._current_title = ""
 
     def _track_thumbnail_webp(self, line: str):
         if not self.cfg.get("embed_thumbnail", False):
@@ -576,10 +577,24 @@ class DownloadThread(QThread):
         ffprobe_ok = bool(ffprobe_cmd)
 
         args = yt_cmd + [
-            self.url, "-P", self.folder, "-o", f"{template}.%(ext)s",
+            "-P", self.folder, "-o", f"{template}.%(ext)s",
             "--newline",
-            "--progress-template", "download:%(progress._percent_str)s"
+            "--progress-template", "download:%(progress._percent_str)s|%(progress.eta)s|%(info.title)s"
         ]
+        playlist_items = str(self.cfg.get("playlist_items", "") or "").strip()
+        if playlist_items:
+            args += ["--playlist-items", playlist_items]
+        order_mode = str(self.cfg.get("playlist_order_mode", "default"))
+        if order_mode == "latest":
+            args += ["--playlist-reverse"]
+        elif order_mode == "popular":
+            args += ["--playlist-sorting", "view_count"]
+        elif order_mode == "oldest":
+            args += ["--playlist-reverse"]
+        elif self.cfg.get("playlist_reverse", False) and not playlist_items:
+            args += ["--playlist-reverse"]
+        if self.cfg.get("disable_playlist_thumbnail", False):
+            args += ["-o", "pl_thumbnail:"]
         if ffmpeg_ok:
             args += ["--ffmpeg-location", str(Path(ffmpeg_cmd).parent)]
 
@@ -642,6 +657,8 @@ class DownloadThread(QThread):
         if start_sec is not None and end_sec is not None:
             args += ["--download-sections", f"*{start_sec}-{end_sec}", "--force-keyframes-at-cuts"]
 
+        args.append(self.url)
+
         try:
             output_tail = []
             if self.cfg.get("embed_thumbnail", False):
@@ -668,6 +685,26 @@ class DownloadThread(QThread):
                     if len(output_tail) > 60:
                         output_tail = output_tail[-60:]
                 self._track_thumbnail_webp(line)
+                if line.startswith("[download] Destination:"):
+                    raw_name = line.split("Destination:", 1)[1].strip()
+                    if raw_name:
+                        self._current_title = Path(raw_name).stem
+                if line.startswith("download:"):
+                    parts = line.split(":", 1)[1].split("|")
+                    if len(parts) >= 3:
+                        eta = parts[1].strip() or "?"
+                        title = parts[2].strip() or self._current_title
+                        self.detail.emit(f"残り: {eta} / {title}")
+                    elif len(parts) >= 1:
+                        pct_text = parts[0].strip()
+                        self.detail.emit(f"進捗: {pct_text}")
+                elif line.startswith("[download]"):
+                    m_eta = re.search(r"ETA\\s+([0-9:]+)", line)
+                    if m_eta:
+                        eta = m_eta.group(1)
+                        title = self._current_title or ""
+                        self.detail.emit(f"残り: {eta} / {title}" if title else f"残り: {eta}")
+
                 m = re.search(r'(\d{1,3}(?:\.\d+)?)%', line)
                 if m:
                     try:
@@ -791,8 +828,80 @@ class YtDlpUpdateThread(QThread):
 
         try:
             before_version = self._get_version(yt_cmd)
-            process = subprocess.Popen(
-                yt_cmd + ["-U"],
+
+            # パッケージ版（PyInstaller等）
+            if getattr(sys, "frozen", False):
+
+                exe_path = Path(yt_cmd[0])
+
+                # OSごとのダウンロードURL
+                if os.name == "nt":
+                    url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+                elif sys.platform == "darwin":
+                    url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+                else:
+                    url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+
+                tmp = exe_path.with_suffix(".new")
+
+                import urllib.request
+                urllib.request.urlretrieve(url, tmp)
+
+                # Linux / macOS 実行権限
+                if os.name != "nt":
+                    os.chmod(tmp, 0o755)
+
+                exe_path.unlink(missing_ok=True)
+                tmp.rename(exe_path)
+
+                output = "GitHubからyt-dlpを更新しました"
+                process_returncode = 0
+
+            else:
+                # Python版
+                process = subprocess.Popen(
+                    yt_cmd + ["-U"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    creationflags=self._create_flags()
+                )
+
+                output, _ = process.communicate()
+                process_returncode = process.returncode
+
+                if process_returncode != 0 and self._is_pypi_update_hint(output):
+                    pip_ok, pip_output = self._run_pip_update()
+                    output = (output or "") + "\n\n[pip fallback]\n" + (pip_output or "")
+                    if pip_ok:
+                        process_returncode = 0
+
+            after_version = self._get_version(yt_cmd)
+
+            if process_returncode == 0:
+                state = "updated"
+                if before_version == after_version:
+                    state = "up_to_date"
+
+                self.finished.emit(True, state, before_version, after_version, output)
+            else:
+                self.finished.emit(False, "failed", before_version, after_version, output)
+        except Exception as e:
+            self.finished.emit(False, "failed", "不明", "不明", f"yt-dlp 更新エラー: {e}")
+
+
+class YtDlpCheckThread(QThread):
+    finished = pyqtSignal(bool, str, str, str, str)
+
+    def _create_flags(self) -> int:
+        return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+    def _get_version(self, yt_cmd):
+        try:
+            process = subprocess.run(
+                yt_cmd + ["--version"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -800,26 +909,42 @@ class YtDlpUpdateThread(QThread):
                 errors="replace",
                 creationflags=self._create_flags()
             )
-            output, _ = process.communicate()
+            if process.returncode == 0:
+                ver = (process.stdout or "").strip()
+                if ver:
+                    return ver.splitlines()[-1].strip()
+        except Exception:
+            pass
+        return "不明"
 
-            if process.returncode != 0 and self._is_pypi_update_hint(output):
-                pip_ok, pip_output = self._run_pip_update()
-                output = (output or "") + "\n\n[pip fallback]\n" + (pip_output or "")
-                if pip_ok:
-                    process_returncode = 0
-                else:
-                    process_returncode = process.returncode
-            else:
-                process_returncode = process.returncode
+    def _fetch_latest_version(self):
+        url = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "Sagami-Youtube-Downloader"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+        return str(data.get("tag_name", "")).strip()
 
-            after_version = self._get_version(yt_cmd)
-            if process_returncode == 0:
-                state = "updated"
-                if before_version != "不明" and after_version != "不明" and before_version == after_version:
-                    state = "up_to_date"
-                self.finished.emit(True, state, before_version, after_version, output or "更新チェックが完了しました。")
-            else:
-                self.finished.emit(False, "failed", before_version, after_version, output or "yt-dlp の更新に失敗しました。")
+    def run(self):
+        yt_cmd = resolve_yt_dlp_command()
+        if yt_cmd is None:
+            self.finished.emit(False, "failed", "不明", "不明", "yt-dlp が見つかりません。")
+            return
+
+        try:
+            current_version = self._get_version(yt_cmd)
+            latest_version = self._fetch_latest_version()
+            if not latest_version:
+                self.finished.emit(False, "failed", current_version, current_version, "最新バージョンの取得に失敗しました。")
+                return
+
+            if current_version and current_version != "不明" and is_newer_version(latest_version, current_version):
+                self.finished.emit(True, "update_available", current_version, latest_version, "")
+                return
+
+            self.finished.emit(True, "up_to_date", current_version, latest_version, "")
+        except Exception as e:
+            self.finished.emit(False, "failed", "不明", "不明", str(e))
+
         except Exception as e:
             self.finished.emit(False, "failed", "不明", "不明", f"yt-dlp 更新エラー: {e}")
 
@@ -1131,6 +1256,7 @@ class Settings(QDialog):
             self.cfg["template"] = self.template_display.text() or "%(title)s"
             self.cfg["path"] = self.parent_win.path_display.text()
             self.cfg["embed_thumbnail"] = self.chk_thumbnail.isChecked()
+            self.cfg["embed_subtitles"] = self.chk_subtitles.isChecked()
             self.cfg["cookies_browser"] = self.cookies_combo.currentData() or "none"
             save_config(self.cfg)
             self.accept()
@@ -1211,6 +1337,159 @@ class LogViewerDialog(QDialog):
     def open_logs_folder(self):
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.logs_dir)))
+
+
+class PlaylistSelectDialog(QDialog):
+    def __init__(self, parent, entries, source_label: str = "プレイリスト"):
+        super().__init__(parent)
+        self.setWindowTitle("動画選択")
+        self.resize(620, 520)
+        self.result_mode = "cancel"
+        self.selected_indices = []
+        self.order_mode = "default"
+        self.search_text = ""
+        self._entries = list(entries or [])
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        label = QLabel(f"{source_label}を検出しました。（{len(entries)}件）\nダウンロードする動画を選択してください。")
+        label.setWordWrap(True)
+        layout.addWidget(label)
+
+        order_row = QHBoxLayout()
+        order_row.addWidget(QLabel("並び順"))
+        self.order_combo = QComboBox()
+        self.order_combo.addItem("最新順")
+        self.order_combo.addItem("人気順")
+        self.order_combo.addItem("古い順")
+        self.order_combo.setMinimumHeight(32)
+        self.order_combo.currentIndexChanged.connect(self._apply_order)
+        order_row.addWidget(self.order_combo, 1)
+        layout.addLayout(order_row)
+
+        search_row = QHBoxLayout()
+        search_row.addWidget(QLabel("検索"))
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("タイトルで検索...")
+        self.search_input.textChanged.connect(self._on_search_changed)
+        search_row.addWidget(self.search_input, 1)
+        layout.addLayout(search_row)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.list_widget.viewport().installEventFilter(self)
+        layout.addWidget(self.list_widget, 1)
+        self._apply_order()
+
+        actions = QHBoxLayout()
+        self.btn_select_all = QPushButton("全部選択")
+        self.btn_clear_all = QPushButton("全解除")
+        self.btn_download_all = QPushButton("全部ダウンロード")
+        self.btn_download_selected = QPushButton("選択のみダウンロード")
+        self.btn_cancel = QPushButton("キャンセル")
+
+        self.btn_select_all.clicked.connect(self.select_all)
+        self.btn_clear_all.clicked.connect(self.clear_all)
+        self.btn_download_all.clicked.connect(self.download_all)
+        self.btn_download_selected.clicked.connect(self.download_selected)
+        self.btn_cancel.clicked.connect(self.reject)
+
+        actions.addWidget(self.btn_select_all)
+        actions.addWidget(self.btn_clear_all)
+        actions.addStretch()
+        actions.addWidget(self.btn_download_all)
+        actions.addWidget(self.btn_download_selected)
+        actions.addWidget(self.btn_cancel)
+        layout.addLayout(actions)
+
+    def select_all(self):
+        for i in range(self.list_widget.count()):
+            self.list_widget.item(i).setCheckState(Qt.CheckState.Checked)
+
+    def clear_all(self):
+        for i in range(self.list_widget.count()):
+            self.list_widget.item(i).setCheckState(Qt.CheckState.Unchecked)
+
+    def download_all(self):
+        self.result_mode = "all"
+        self.accept()
+
+    def download_selected(self):
+        indices = []
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                idx = item.data(Qt.ItemDataRole.UserRole)
+                if idx is not None:
+                    indices.append(int(idx))
+        self.selected_indices = indices
+        self.result_mode = "selected"
+        self.accept()
+
+    def toggle_item_check(self, item):
+        if item is None:
+            return
+        state = item.checkState()
+        item.setCheckState(Qt.CheckState.Unchecked if state == Qt.CheckState.Checked else Qt.CheckState.Checked)
+
+    def eventFilter(self, obj, event):
+        if obj is self.list_widget.viewport() and event.type() == QEvent.Type.MouseButtonPress:
+            item = self.list_widget.itemAt(event.pos())
+            if item is not None:
+                self.toggle_item_check(item)
+                return True
+        return super().eventFilter(obj, event)
+
+    def _on_search_changed(self, text: str):
+        self.search_text = (text or "").strip().lower()
+        self._apply_order()
+
+    def _apply_order(self):
+        self.list_widget.clear()
+        index = self.order_combo.currentIndex()
+        if index == 0:
+            self.order_mode = "latest"
+        elif index == 1:
+            self.order_mode = "popular"
+        else:
+            self.order_mode = "oldest"
+        items = list(self._entries)
+        if self.search_text:
+            items = [e for e in items if self.search_text in str(e.get("title", "")).lower()]
+
+        has_date = any(self._date_sort_key(e) > 0 for e in items)
+        if self.order_mode == "latest":
+            if has_date:
+                items.sort(key=self._date_sort_key, reverse=True)
+            else:
+                items.sort(key=lambda e: int(e.get("order_index") or e.get("index") or 0))
+        elif self.order_mode == "popular":
+            items.sort(key=lambda e: int(e.get("view_count") or 0), reverse=True)
+        elif self.order_mode == "oldest":
+            if has_date:
+                items.sort(key=self._date_sort_key, reverse=False)
+            else:
+                items.sort(key=lambda e: int(e.get("order_index") or e.get("index") or 0), reverse=True)
+        for entry in items:
+            idx = entry.get("index")
+            title = entry.get("title") or "(タイトル未取得)"
+            text = f"{idx}. {title}"
+            item = QListWidgetItem(text)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            item.setData(Qt.ItemDataRole.UserRole, idx)
+            self.list_widget.addItem(item)
+
+    def _date_sort_key(self, entry):
+        ts = entry.get("timestamp") or 0
+        if ts:
+            return int(ts)
+        ud = str(entry.get("upload_date") or "")
+        if ud.isdigit():
+            return int(ud)
+        return 0
 
 
 class Main(QWidget):
@@ -1485,6 +1764,12 @@ class Main(QWidget):
         self.progress_bar.setFixedHeight(18)
         card_layout.addWidget(self.progress_bar)
 
+        self.progress_detail_label = QLabel("")
+        self.progress_detail_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.progress_detail_label.setWordWrap(True)
+        self.progress_detail_label.setVisible(True)
+        card_layout.addWidget(self.progress_detail_label)
+
         # 詳細設定
         foot_actions = QHBoxLayout()
         foot_actions.addStretch()
@@ -1625,6 +1910,132 @@ class Main(QWidget):
             aq_idx = self.audio_quality_combo.findData(str(self.cfg.get("audio_quality", "0")))
             self.audio_quality_combo.setCurrentIndex(aq_idx if aq_idx >= 0 else 0)
 
+    def _looks_like_playlist_url(self, url: str) -> bool:
+        text = (url or "").lower()
+        if "list=" in text:
+            return True
+        if "/playlist" in text:
+            return True
+        if "music.youtube.com/playlist" in text:
+            return True
+        return False
+
+    def _looks_like_channel_url(self, url: str) -> bool:
+        text = (url or "").lower()
+        if "youtube.com/channel/" in text:
+            return True
+        if "youtube.com/@" in text:
+            return True
+        if "youtube.com/user/" in text:
+            return True
+        return False
+
+    def _normalize_channel_videos_url(self, url: str) -> str:
+        raw = (url or "").strip()
+        if not raw:
+            return raw
+        parsed = urllib.parse.urlparse(raw)
+        path = parsed.path or ""
+        lower_path = path.lower()
+        if any(token in lower_path for token in ["/videos", "/streams", "/live", "/shorts"]):
+            return raw
+        if path.endswith("/"):
+            path = path + "videos"
+        else:
+            path = path + "/videos"
+        return urllib.parse.urlunparse(parsed._replace(path=path))
+
+    def _fetch_playlist_entries(self, url: str, limit: int = 4000, order_mode: str = "default"):
+        yt_cmd = resolve_yt_dlp_command()
+        if yt_cmd is None:
+            return None, "yt-dlp が見つかりません。"
+
+        flat_limit = max(1, int(limit))
+        args = yt_cmd + ["--flat-playlist", "-J", "--playlist-end", str(flat_limit)]
+        if order_mode == "latest":
+            args += ["--playlist-reverse"]
+        elif order_mode == "popular":
+            args += ["--playlist-sorting", "view_count"]
+        elif order_mode == "oldest":
+            args += ["--playlist-reverse"]
+        args.append(url)
+
+        cookies_browser = self.cfg.get("cookies_browser", "none")
+        if cookies_browser and cookies_browser != "none":
+            args += ["--cookies-from-browser", cookies_browser]
+
+        proxy_url = str(self.cfg.get("proxy_url", "") or "").strip()
+        if proxy_url:
+            args += ["--proxy", proxy_url]
+
+        try:
+            proc = subprocess.run(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+        except Exception as e:
+            return None, f"プレイリスト取得に失敗しました。\n{e}"
+
+        if proc.returncode != 0:
+            err_tail = tail_text(proc.stderr or "")
+            if err_tail:
+                return None, f"プレイリストの取得に失敗しました。\n{err_tail}"
+            return None, "プレイリストの取得に失敗しました。"
+
+        try:
+            stdout_text = proc.stdout or ""
+            data = json.loads(stdout_text)
+        except Exception:
+            # In case warnings got mixed into stdout, try extracting JSON block.
+            stdout_text = proc.stdout or ""
+            start = stdout_text.find("{")
+            end = stdout_text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                try:
+                    data = json.loads(stdout_text[start:end + 1])
+                except Exception:
+                    data = None
+            else:
+                data = None
+            if not data:
+                err_tail = tail_text(proc.stderr or "")
+                if err_tail:
+                    return None, f"プレイリスト情報の解析に失敗しました。\n{err_tail}"
+                return None, "プレイリスト情報の解析に失敗しました。"
+
+        entries = data.get("entries") or []
+        if not entries:
+            return None, None
+
+        items = []
+        idx_counter = 1
+        for entry in entries:
+            if not entry:
+                idx_counter += 1
+                continue
+            idx = entry.get("playlist_index") or entry.get("index") or idx_counter
+            title = entry.get("title") or entry.get("fulltitle") or entry.get("id") or "(タイトル未取得)"
+            upload_date = entry.get("upload_date")
+            timestamp = entry.get("timestamp")
+            view_count = entry.get("view_count")
+            items.append({
+                "index": int(idx),
+                "order_index": int(idx),
+                "title": str(title),
+                "upload_date": str(upload_date) if upload_date is not None else "",
+                "timestamp": int(timestamp) if str(timestamp).isdigit() else 0,
+                "view_count": int(view_count) if str(view_count).isdigit() else 0,
+            })
+            idx_counter += 1
+
+        return items, None
+
     def browse_folder(self):
         start_dir = self.path_display.text().strip() or os.path.join(os.path.expanduser("~"), "Downloads")
         folder = QFileDialog.getExistingDirectory(self, "保存先フォルダを選択", start_dir)
@@ -1659,9 +2070,8 @@ class Main(QWidget):
         if self.startup_updater is not None and self.startup_updater.isRunning():
             return
 
-        self.set_ytdlp_status("", "checking")
-        self.startup_updater = YtDlpUpdateThread()
-        self.startup_updater.finished.connect(self.on_startup_ytdlp_updated)
+        self.startup_updater = YtDlpCheckThread()
+        self.startup_updater.finished.connect(self.on_startup_ytdlp_checked)
         self.startup_updater.start()
 
     def check_app_update_on_startup(self):
@@ -1750,6 +2160,9 @@ class Main(QWidget):
             self.ytdlp_status_label.setText(self.t("status.ytdlp_checking", "yt-dlp - Checking..."))
         elif state == "not_found":
             self.ytdlp_status_label.setText(self.t("status.ytdlp_not_found", "yt-dlp - Not found"))
+        elif state == "update_available":
+            current = self.ytdlp_version or self.t("common.unknown", "Unknown")
+            self.ytdlp_status_label.setText(self.t("status.ytdlp_update_available", "yt-dlp - {current}->{latest} Update available").format(current=current, latest=version))
         elif state == "up_to_date":
             if not version:
                 version = self.t("common.unknown", "Unknown")
@@ -1780,6 +2193,15 @@ class Main(QWidget):
             prefix="ytdlp_update_startup_failed",
         )
         self.ytdlp_status_label.setText(self.t("status.ytdlp_failed_with_log", "yt-dlp - {version} Check failed (log: {log})").format(version=status_version, log=Path(log_path).name))
+
+    def on_startup_ytdlp_checked(self, ok: bool, state: str, current_version: str, latest_version: str, _output: str):
+        if not ok:
+            return
+        if state == "update_available":
+            self.ytdlp_version = current_version or self.t("common.unknown", "Unknown")
+            self.set_ytdlp_status(latest_version or current_version, "update_available")
+        elif state == "up_to_date":
+            self.set_ytdlp_status(current_version or latest_version, "up_to_date")
 
     def on_ytdlp_updated(self, ok: bool, state: str, before_version: str, after_version: str, output: str):
         self.btn_update_ytdlp.setEnabled(True)
@@ -1829,6 +2251,44 @@ class Main(QWidget):
             self._show_warning("時間指定エラー", time_error)
             return
 
+        playlist_items = ""
+        playlist_reverse = False
+        playlist_order_mode = "default"
+        is_playlist_url = self._looks_like_playlist_url(url)
+        is_channel_url = self._looks_like_channel_url(url)
+        if is_channel_url:
+            url = self._normalize_channel_videos_url(url)
+        if is_playlist_url or is_channel_url:
+            entries, error = self._fetch_playlist_entries(url, limit=4000, order_mode=playlist_order_mode)
+            if error:
+                self._show_warning("プレイリスト", error)
+                return
+            elif entries:
+                source_label = "チャンネル" if is_channel_url and not is_playlist_url else "プレイリスト"
+                dlg = PlaylistSelectDialog(self, entries, source_label=source_label)
+                if dlg.exec() != QDialog.DialogCode.Accepted:
+                    return
+                if dlg.result_mode == "selected":
+                    if not dlg.selected_indices:
+                        self._show_warning("プレイリスト", "動画が選択されていません。")
+                        return
+                    seen = set()
+                    ordered = []
+                    for idx in dlg.selected_indices:
+                        if idx in seen:
+                            continue
+                        seen.add(idx)
+                        ordered.append(idx)
+                    playlist_items = ",".join(str(i) for i in ordered)
+                    playlist_reverse = False
+                    playlist_order_mode = dlg.order_mode
+                elif dlg.result_mode == "all":
+                    playlist_items = ""
+                    playlist_reverse = (dlg.order_mode == "oldest")
+                    playlist_order_mode = dlg.order_mode
+                else:
+                    return
+
         self.btn_dl.setEnabled(True)
         self.btn_dl.setText("ダウンロード中... 0%")
         self.btn_update_ytdlp.setEnabled(False)
@@ -1840,13 +2300,24 @@ class Main(QWidget):
         cfg["time_range_start"] = start_sec
         cfg["time_range_end"] = end_sec
         save_config(cfg)
+        cfg["disable_playlist_thumbnail"] = bool(is_playlist_url or is_channel_url)
+        cfg["playlist_reverse"] = bool(playlist_reverse)
+        cfg["playlist_order_mode"] = str(playlist_order_mode)
+        if playlist_items:
+            cfg["playlist_items"] = playlist_items
+        else:
+            cfg.pop("playlist_items", None)
         download_folder = self.path_display.text().strip() or os.path.join(os.path.expanduser("~"), "Downloads")
         self.download_thread = DownloadThread(url, download_folder, cfg)
         self.download_thread.progress.connect(self.update_progress)
+        self.download_thread.detail.connect(self.update_progress_detail)
         self.download_thread.finished.connect(self.done)
+        self.download_thread.finished.connect(self.on_download_thread_finished)
         self.download_thread.start()
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
+        self.progress_detail_enabled = True
+        self.progress_detail_label.setVisible(True)
 
     def update_progress(self, pct: int):
         try:
@@ -1855,6 +2326,12 @@ class Main(QWidget):
             self.progress_bar.setValue(pct)
         except Exception:
             pass
+
+    def update_progress_detail(self, text: str):
+        if not hasattr(self, "progress_detail_label"):
+            return
+        if text:
+            self.progress_detail_label.setText(text)
 
     def cancel_download(self):
         if self.download_thread is None:
@@ -1870,13 +2347,23 @@ class Main(QWidget):
             pass
 
     def done(self, msg):
-        self.download_thread = None
         self.btn_dl.setEnabled(True)
         self.btn_dl.setText("ダウンロードを開始")
         self.btn_update_ytdlp.setEnabled(True)
         self.progress_bar.setVisible(False)
         self.progress_bar.setValue(0)
+        if hasattr(self, "progress_detail_label"):
+            self.progress_detail_label.setText("")
+        self.progress_detail_enabled = True
         self._show_info("通知", msg)
+
+    def on_download_thread_finished(self):
+        if self.download_thread is None:
+            return
+        if self.download_thread.isRunning():
+            self.download_thread.wait(3000)
+        self.download_thread = None
+        self.progress_detail_enabled = True
 
     def _stop_thread(self, thread, terminate_process: bool = False, wait_ms: int = 5000) -> bool:
         if thread is None:
@@ -2031,7 +2518,7 @@ class Main(QWidget):
             QFrame#Card {{ background-color: {card_color}; border-radius: 24px; border: 1px solid {input_border}; }}
             QLabel {{ color: {label_color}; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }}
             QLabel#Title {{ color: {title_color}; font-size: 24px; font-weight: 200; margin-left: 0px; }}
-            QLineEdit, QComboBox {{ border: 1px solid {input_border}; padding: 10px 12px; border-radius: 10px; background: {input_bg}; color: {input_text}; font-size: 14px; }}
+            QLineEdit, QComboBox {{ border: 1px solid {input_border}; border-bottom: 2px solid {input_border}; padding: 8px 12px 8px 12px; border-radius: 10px; background: {input_bg}; background-clip: padding; color: {input_text}; font-size: 14px; }}
             QLineEdit#PathDisplay {{ color: {input_text}; font-size: 15px; font-weight: 500; }}
             QLineEdit:focus, QComboBox:focus {{ border: 1px solid {input_border}; border-bottom: 2px solid #0a84ff; }}
             QComboBox::drop-down {{ border: none; width: 22px; }}
