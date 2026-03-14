@@ -1,8 +1,6 @@
 name: Build and Package
 
 on:
-  push:
-    branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
@@ -21,10 +19,12 @@ jobs:
             executable_name: "Sagami-Youtube-Downloader-Linux-x86_64"
             artifact_name: "Linux-x86_64-Package"
             zip_name: "Sagami-Youtube-Downloader-Linux-x86_64.zip"
+            short_zip_name: "Sagami-Youtube-Downloader-Linux.zip"
           - os: macos-latest
             executable_name: "Sagami Youtube Downloader"
             artifact_name: "macOS-Universal-Package"
             zip_name: "Sagami-Youtube-Downloader-macOS-Universal.zip"
+            short_zip_name: "Sagami-Youtube-Downloader-macOS.zip"
 
     runs-on: ${{ matrix.os }}
 
@@ -167,6 +167,7 @@ jobs:
           if (!(Test-Path "dist-package")) { New-Item -ItemType Directory "dist-package" }
           xcopy /E /I /Y "nuitka_dist\main.dist\*" "dist-package\"
           Copy-Item -Path "Sagami Youtube Downloader.ico" -Destination "dist-package\" -Force
+          compress-archive -Path "dist-package\*" -DestinationPath "${{ matrix.zip_name }}"
 
       - name: Create Inno Setup Script (Windows)
         if: runner.os == 'Windows'
@@ -181,8 +182,8 @@ jobs:
           AppPublisherURL=https://github.com/sagami121/Sagami-Youtube-Downloader
           DefaultDirName={autopf}\Sagami Youtube Downloader
           DefaultGroupName=Sagami Youtube Downloader
-          OutputBaseFilename=SagamiYoutubeDownloader_v${{ steps.get_version.outputs.version }}_Setup
-          OutputDir=installer-output
+          OutputBaseFilename=Sagami Youtube Downloader_v${{ steps.get_version.outputs.version }}_Setup
+          OutputDir=.
           UninstallDisplayIcon={app}\Sagami Youtube Downloader.exe
           CreateUninstallRegKey=yes
           DisableDirPage=no
@@ -219,7 +220,6 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          if (!(Test-Path "installer-output")) { New-Item -ItemType Directory "installer-output" }
           $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\\ISCC.exe"
           & $iscc installer.iss
 
@@ -229,6 +229,7 @@ jobs:
           mkdir -p dist-package
           cp dist/"${{ matrix.executable_name }}" dist-package/
           zip -1 -j "${{ matrix.zip_name }}" dist-package/*
+          cp "${{ matrix.zip_name }}" "${{ matrix.short_zip_name }}"
 
       - name: Package artifacts (macOS)
         if: runner.os == 'macOS'
@@ -236,11 +237,12 @@ jobs:
           mkdir -p dist-package
           cp -r "dist/${{ matrix.executable_name }}.app" dist-package/
           zip -1 -r "${{ matrix.zip_name }}" dist-package/
+          cp "${{ matrix.zip_name }}" "${{ matrix.short_zip_name }}"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: |
-            installer-output/*.exe
+            *.exe
             *.zip
