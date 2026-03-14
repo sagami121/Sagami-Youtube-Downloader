@@ -244,5 +244,5 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: |
-            *.exe
-            *.zip
+            *Setup.exe
+            Sagami-Youtube-Downloader-*.zip
