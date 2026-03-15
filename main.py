@@ -12,11 +12,11 @@ import urllib.parse
 import ssl
 from datetime import datetime
 from pathlib import Path
-from PyQt6.QtWidgets import *
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler, QEvent
-from PyQt6.QtGui import QFont, QIcon, QDesktopServices, QColor, QPalette
+from PySide6.QtWidgets import *
+from PySide6.QtCore import Qt, QThread, Signal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler, QEvent
+from PySide6.QtGui import QFont, QIcon, QDesktopServices, QColor, QPalette
 
-VERSION = "1.6.1"
+VERSION = "1.6.2"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
@@ -644,8 +644,9 @@ def write_ini_log(section: str, values: dict, prefix: str = "error") -> str:
     return ""
 
 class DownloadThread(QThread):
-    progress = pyqtSignal(int)
-    finished = pyqtSignal(str)
+    progress = Signal(int)
+    detail = Signal(str)
+    finished = Signal(str)
 
     def __init__(self, url, folder, cfg):
         super().__init__()
@@ -914,7 +915,7 @@ class DownloadThread(QThread):
             self.finished.emit(f"実行エラー: {e}\nログ: {log_path}")
 
 class YtDlpUpdateThread(QThread):
-    finished = pyqtSignal(bool, str, str, str, str)
+    finished = Signal(bool, str, str, str, str)
 
     def _create_flags(self) -> int:
         return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -1048,7 +1049,7 @@ class YtDlpUpdateThread(QThread):
 
 
 class YtDlpCheckThread(QThread):
-    finished = pyqtSignal(bool, str, str, str, str)
+    finished = Signal(bool, str, str, str, str)
 
     def _create_flags(self) -> int:
         return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -1108,7 +1109,7 @@ class YtDlpCheckThread(QThread):
             self.finished.emit(False, "failed", "不明", "不明", f"yt-dlp 更新エラー: {e}")
 
 class AppUpdateThread(QThread):
-    finished = pyqtSignal(bool, str, str, str, str, str, str, str)
+    finished = Signal(bool, str, str, str, str, str, str, str)
 
     def __init__(self, source_url: str):
         super().__init__()
