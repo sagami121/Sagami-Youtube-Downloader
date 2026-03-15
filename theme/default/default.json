@@ -1,0 +1,63 @@
+{
+    "info": {
+        "author": "3aGaM1",
+        "theme_name": "Default",
+        "description": "Default light/dark theme"
+    },
+    "dark": {
+        "colors": {
+            "bg": "#000000",
+            "card": "#1c1c1e",
+            "label": "#8e8e93",
+            "title": "#ffffff",
+            "input_bg": "#2c2c2e",
+            "input_text": "#ffffff",
+            "input_border": "#3a3a3c",
+            "btn_bg": "#3a3a3c",
+            "btn_text": "#ffffff"
+        },
+        "props": {
+            "primary_btn": "#0a84ff",
+            "primary_btn_hover": "#409cff",
+            "focus_border": "#0a84ff",
+            "status_green": "#34c759",
+            "card_radius": 24,
+            "input_radius": 10,
+            "btn_radius": 10,
+            "label_size": 11,
+            "label_weight": 700,
+            "title_size": 24,
+            "title_weight": 200,
+            "input_padding": "8px 12px 8px 12px",
+            "button_padding": "10px"
+        }
+    },
+    "light": {
+        "colors": {
+            "bg": "#ffffff",
+            "card": "#f5f5f7",
+            "label": "#333333",
+            "title": "#000000",
+            "input_bg": "#ffffff",
+            "input_text": "#000000",
+            "input_border": "#d5d5d7",
+            "btn_bg": "#e8e8ea",
+            "btn_text": "#000000"
+        },
+        "props": {
+            "primary_btn": "#0a84ff",
+            "primary_btn_hover": "#409cff",
+            "focus_border": "#0a84ff",
+            "status_green": "#34c759",
+            "card_radius": 24,
+            "input_radius": 10,
+            "btn_radius": 10,
+            "label_size": 11,
+            "label_weight": 700,
+            "title_size": 24,
+            "title_weight": 200,
+            "input_padding": "8px 12px 8px 12px",
+            "button_padding": "10px"
+        }
+    }
+}

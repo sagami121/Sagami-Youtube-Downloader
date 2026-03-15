@@ -33,13 +33,25 @@ if not exist "language\en.json" (
   echo [ERROR] language\en.json not found.
   exit /b 1
 )
+if not exist "language\ko.json" (
+  echo [ERROR] language\ko.json not found.
+  exit /b 1
+)
+if not exist "language\zh.json" (
+  echo [ERROR] language\zh.json not found.
+  exit /b 1
+)
+if not exist "theme" (
+  echo [ERROR] theme folder not found.
+  exit /b 1
+)
 if not exist "%ICON_FILE%" (
   echo [ERROR] %ICON_FILE% not found.
   exit /b 1
 )
 
 echo [START] Build main app
-python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico="%ICON_FILE%" --output-dir="%OUTPUT_DIR%" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="%ICON_FILE%=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language main.py
+python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico="%ICON_FILE%" --output-dir="%OUTPUT_DIR%" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="%ICON_FILE%=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language --include-data-dir=theme=theme main.py
 if errorlevel 1 (
   echo [ERROR] Build main app failed.
   exit /b 1

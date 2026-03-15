@@ -1,0 +1,116 @@
+1. フォルダ構成 
+
+theme/                              # ルートのthemeフォルダ
+  <theme_name>/                     # テーマ名のフォルダ
+    <theme_name>.json               # テーマ定義JSON
+    <theme_name>_light.css          # ライト版CSS
+    <theme_name>_dark.css           # ダーク版CSS
+
+例: theme/neon/neon.json, theme/neon/neon_light.css, theme/neon/neon_dark.css  # 例
+
+2. JSON（必須）  
+
+<theme_name>.json に情報とスタイル値を入れます。
+
+{
+  "info": {
+    "author": "your name",                     # 作者名
+    "theme_name": "Neon",                      # テーマ名（表示用）
+    "description": "Short description"         # 説明（UIのテーマ情報に表示）
+  },
+  "neon_light": {                              # ライト版のテーマキー（<theme_name>_light）
+    "colors": {                                # UI全体の色
+      "bg": "#ffffff",                         # 背景（ウィンドウ全体）
+      "card": "#f5f5f7",                       # 中央カード背景
+      "label": "#333333",                      # ラベル文字色
+      "title": "#000000",                      # タイトル文字色
+      "input_bg": "#ffffff",                   # 入力欄背景
+      "input_text": "#000000",                 # 入力欄文字色
+      "input_border": "#d5d5d7",               # 入力欄枠線
+      "btn_bg": "#e8e8ea",                     # セカンダリボタン背景
+      "btn_text": "#000000"                    # セカンダリボタン文字色
+    },
+    "props": {                                 # サイズ・装飾
+      "primary_btn": "#0a84ff",                # メインボタン背景
+      "primary_btn_hover": "#409cff",          # メインボタンホバー
+      "focus_border": "#0a84ff",               # フォーカス時の下線色
+      "status_green": "#34c759",               # ステータス表示の緑
+      "card_radius": 16,                       # カード角丸
+      "input_radius": 8,                       # 入力欄角丸
+      "btn_radius": 8,                         # ボタン角丸
+      "label_size": 11,                        # ラベル文字サイズ
+      "label_weight": 700,                     # ラベル太さ
+      "title_size": 22,                        # タイトル文字サイズ
+      "title_weight": 600,                     # タイトル太さ
+      "input_padding": "8px 12px 8px 12px",    # 入力欄パディング
+      "button_padding": "10px"                 # ボタンパディング
+    }
+  },
+  "neon_dark": {                               # ダーク版のテーマキー（<theme_name>_dark）
+    "colors": {
+      "bg": "#111111",                         # 背景
+      "card": "#1a1a1a",                       # 中央カード背景
+      "label": "#cfcfcf",                      # ラベル文字色
+      "title": "#ffffff",                      # タイトル文字色
+      "input_bg": "#222222",                   # 入力欄背景
+      "input_text": "#ffffff",                 # 入力欄文字色
+      "input_border": "#333333",               # 入力欄枠線
+      "btn_bg": "#333333",                     # セカンダリボタン背景
+      "btn_text": "#ffffff"                    # セカンダリボタン文字色
+    },
+    "props": {
+      "primary_btn": "#0a84ff",                # メインボタン背景
+      "primary_btn_hover": "#409cff",          # メインボタンホバー
+      "focus_border": "#0a84ff",               # フォーカス時の下線色
+      "status_green": "#34c759",               # ステータス表示の緑
+      "card_radius": 16,                       # カード角丸
+      "input_radius": 8,                       # 入力欄角丸
+      "btn_radius": 8,                         # ボタン角丸
+      "label_size": 11,                        # ラベル文字サイズ
+      "label_weight": 700,                     # ラベル太さ
+      "title_size": 22,                        # タイトル文字サイズ
+      "title_weight": 600,                     # タイトル太さ
+      "input_padding": "8px 12px 8px 12px",    # 入力欄パディング
+      "button_padding": "10px"                 # ボタンパディング
+    }
+  }
+}
+
+3. CSS（必須）  
+
+テーマCSSは get_stylesheet() が読み込みます。  
+
+以下のどちらかの形式にしてください。
+
+--------------------------
+
+<theme_name>_light.css   
+<theme_name>_dark.css   
+
+--------------------------
+
+QWidget#Main { background-color: #ffffff; }
+QFrame#Card { background-color: #f5f5f7; border-radius: 16px; border: 1px solid #d5d5d7; }
+QLabel { color: #333333; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }
+QLabel#Title { color: #000000; font-size: 22px; font-weight: 600; margin-left: 0px; }
+QLineEdit, QComboBox { border: 1px solid #d5d5d7; border-bottom: 2px solid #d5d5d7; padding: 8px 12px 8px 12px; border-radius: 8px; background: #ffffff; background-clip: padding; color: #000000; font-size: 14px; }
+QLineEdit:focus, QComboBox:focus { border: 1px solid #d5d5d7; border-bottom: 2px solid #0a84ff; }
+QPushButton { background-color: #0a84ff; color: white; border-radius: 8px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }
+QPushButton:hover { background-color: #409cff; }
+QPushButton#SecondaryBtn { background-color: #e8e8ea; color: #000000; font-size: 13px; font-weight: normal; }
+QLabel#YtDlpStatusLabel { color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }
+QLabel#AppStatusLabel { color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }
+#SettingsBtn { background: transparent; color: #000000; font-size: 13px; }
+#ThemeBtn { background-color: #e8e8ea; color: #000000; font-weight: normal; }
+
+3-2. 設定画面の注意  
+
+設定画面用に QDialog を使うため、設定専用スタイルは QDialog 配下に限定してください。 
+QDialog QLabel { ... }
+QDialog QLineEdit { ... }
+
+4. 追加手順  
+
+1. theme/<theme_name>/ を作成  
+2. <theme_name>.json と CSS を配置  
+3. 起動後、設定画面のテーマ一覧に自動追加されます  

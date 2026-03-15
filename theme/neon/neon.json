@@ -1,0 +1,63 @@
+{
+    "info": {
+        "author": "3aGaM1",
+        "theme_name": "Neon",
+        "description": "Soft neon with muted cyan and violet accents"
+    },
+    "neon_light": {
+        "colors": {
+            "bg": "#f6f7fb",
+            "card": "#ffffff",
+            "label": "#4b5363",
+            "title": "#1a2130",
+            "input_bg": "#ffffff",
+            "input_text": "#1a2130",
+            "input_border": "#7aa2f7",
+            "btn_bg": "#5ccfe6",
+            "btn_text": "#0f1420"
+        },
+        "props": {
+            "primary_btn": "#5ccfe6",
+            "primary_btn_hover": "#8aa2ff",
+            "focus_border": "#5ccfe6",
+            "status_green": "#15803d",
+            "card_radius": 18,
+            "input_radius": 10,
+            "btn_radius": 10,
+            "label_size": 11,
+            "label_weight": 700,
+            "title_size": 22,
+            "title_weight": 600,
+            "input_padding": "9px 12px 9px 12px",
+            "button_padding": "10px"
+        }
+    },
+    "neon_dark": {
+        "colors": {
+            "bg": "#0f1420",
+            "card": "#141b2a",
+            "label": "#a5adba",
+            "title": "#dce7f5",
+            "input_bg": "#151d2f",
+            "input_text": "#dce7f5",
+            "input_border": "#5ccfe6",
+            "btn_bg": "#5ccfe6",
+            "btn_text": "#0f1420"
+        },
+        "props": {
+            "primary_btn": "#5ccfe6",
+            "primary_btn_hover": "#8aa2ff",
+            "focus_border": "#a4b3ff",
+            "status_green": "#22c55e",
+            "card_radius": 18,
+            "input_radius": 10,
+            "btn_radius": 10,
+            "label_size": 11,
+            "label_weight": 700,
+            "title_size": 22,
+            "title_weight": 600,
+            "input_padding": "9px 12px 9px 12px",
+            "button_padding": "10px"
+        }
+    }
+}

@@ -130,13 +130,14 @@ jobs:
       - name: Build with Nuitka (Windows)
         if: runner.os == 'Windows'
         run: |
-          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico="Sagami Youtube Downloader.ico" --output-dir="nuitka_dist" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="Sagami Youtube Downloader.ico=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language main.py
+          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico="Sagami Youtube Downloader.ico" --output-dir="nuitka_dist" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="Sagami Youtube Downloader.ico=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language --include-data-dir=theme=theme main.py
 
       - name: Build with PyInstaller (Linux)
         if: runner.os == 'Linux'
         run: |
           pyinstaller --noconfirm --onefile --windowed \
             --add-data "language:language" \
+            --add-data "theme:theme" \
             --add-binary "yt-dlp:." \
             --add-binary "ffmpeg:." \
             --add-binary "ffprobe:." \
@@ -149,6 +150,7 @@ jobs:
           pyinstaller --noconfirm --onedir --windowed \
             --target-arch universal2 \
             --add-data "language:language" \
+            --add-data "theme:theme" \
             --add-binary "yt-dlp:." \
             --add-binary "ffmpeg:." \
             --add-binary "ffprobe:." \
@@ -266,12 +268,27 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Get Release Notes from changelog.txt
+        id: changelog
+        shell: bash
+        run: |
+          # 最新のセクションを抽出し、最初の2行（バージョン名と日付）を削除
+          # さらに、空行を除去して純粋な箇条書きのみを取得
+          NOTES=$(sed -n '1,/^$/p' changelog.txt | sed '1,2d' | sed '/^$/d')
+          # GitHub Actions の複数行出力のためのエスケープ処理
+          {
+            echo 'body<<EOF'
+            echo "$NOTES"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag_name }}
           name: Release ${{ steps.meta.outputs.tag_name }}
-          generate_release_notes: true
+          body: ${{ steps.changelog.outputs.body }}
+          generate_release_notes: false
           files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -14,9 +14,9 @@ from datetime import datetime
 from pathlib import Path
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler, QEvent
-from PyQt6.QtGui import QFont, QIcon, QDesktopServices
+from PyQt6.QtGui import QFont, QIcon, QDesktopServices, QColor, QPalette
 
-VERSION = "1.6"
+VERSION = "1.6.1"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
@@ -71,110 +71,249 @@ def qt_message_filter(_msg_type, _context, message):
         # Never crash app from Qt log handler.
         pass
 
+def _theme_base_dirs():
+    app_dir = get_runtime_app_dir()
+    bases = [app_dir / "theme", Path(__file__).parent / "theme"]
+    return [b for b in bases if b.exists()]
+
+def resolve_theme_assets(theme: str):
+    """テーマ名からCSS/JSONパスを解決"""
+    bases = _theme_base_dirs()
+    css_path = None
+    json_path = None
+    if theme in ("dark", "light"):
+        for base in bases:
+            candidate = base / "default" / f"default_{theme}.css"
+            if candidate.exists():
+                css_path = candidate
+                json_path = base / "default" / "default.json"
+                break
+    elif "_" in theme:
+        prefix = theme.split("_", 1)[0]
+        for base in bases:
+            candidate = base / prefix / f"{theme}.css"
+            if candidate.exists():
+                css_path = candidate
+                json_path = base / prefix / f"{prefix}.json"
+                break
+    if css_path is None:
+        for base in bases:
+            try:
+                found = next(base.rglob(f"{theme}.css"))
+                css_path = found
+                json_path = found.parent / f"{found.parent.name}.json"
+                break
+            except StopIteration:
+                continue
+    return css_path, json_path
+
 def get_stylesheet(theme="dark", widget_type="main"):
     """テーマに応じたスタイルシートを返す"""
-    if theme == "light":
-        if widget_type == "main":
-            return """
-            QWidget#Main { background-color: #ffffff; }
-            QFrame#Card { background-color: #f5f5f7; border-radius: 24px; border: 1px solid #d5d5d7; }
-            QLabel { color: #333333; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }
-            QLabel#Title { color: #000000; font-size: 24px; font-weight: 200; margin-left: 0px; }
-            QLineEdit, QComboBox { border: 1px solid #d5d5d7; border-bottom: 2px solid #d5d5d7; padding: 8px 12px 8px 12px; border-radius: 10px; background: #ffffff; background-clip: padding; color: #000000; font-size: 14px; }
-            QLineEdit#PathDisplay { color: #111111; font-size: 15px; font-weight: 500; }
-            QLineEdit:focus, QComboBox:focus { border: 1px solid #d5d5d7; border-bottom: 2px solid #0a84ff; }
-            QComboBox::drop-down { border: none; width: 22px; }
-            QPushButton { background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }
-            QPushButton:hover { background-color: #409cff; }
-            QPushButton#SecondaryBtn { background-color: #e8e8ea; color: #000000; font-size: 13px; font-weight: normal; }
-            QLabel#YtDlpStatusLabel { color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }
-            QLabel#AppStatusLabel { color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }
-            #SettingsBtn { background: transparent; color: #000000; font-size: 13px; }
-            #ThemeBtn { background-color: #e8e8ea; color: #000000; font-weight: normal; }
-            QProgressBar {
-                border: none;
-                background-color: #e8e8ea;
-                border-radius: 4px;
-                text-align: center;
-                color: #333333;
-                font-size: 11px;
-                font-weight: 600;
-            }
-            QProgressBar::chunk {
-                border-radius: 4px;
-                background: #0a84ff;
-            }
-            """
-        else:  # settings
-            return """
-            QDialog { background: #ffffff; }
-            QLabel { color: #333333; font-size: 13px; font-weight: bold; }
-            QCheckBox { color: #333333; font-size: 13px; }
-            QLineEdit { border: 1px solid #d5d5d7; border-bottom: 2px solid #d5d5d7; padding: 8px 12px 8px 12px; border-radius: 10px; background: #ffffff; background-clip: padding; color: #000000; font-family: 'Consolas'; font-size: 14px; }
-            QLineEdit:focus { border: 1px solid #d5d5d7; border-bottom: 2px solid #0a84ff; }
-            QPushButton { background-color: #e8e8ea; color: #000000; border-radius: 10px; border: none; font-size: 13px; padding: 2px; }
-            QPushButton:hover { background-color: #d5d5d7; }
-            QPushButton:checked { background-color: #0a84ff; color: white; border: none; font-weight: bold; }
-            #ClearBtn { color: #ff3b30; }
-            #SaveBtn { background-color: #0a84ff; color: white; font-weight: bold; font-size: 15px; border: none; }
-            """
-    else:  # dark
-        if widget_type == "main":
-            return """
-            QWidget#Main { background-color: #000000; }
-            QFrame#Card { background-color: #1c1c1e; border-radius: 24px; border: 1px solid #2c2c2e; }
-            QLabel { color: #8e8e93; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }
-            QLabel#Title { color: #ffffff; font-size: 24px; font-weight: 200; margin-left: 0px; }
-            QLineEdit, QComboBox { border: 1px solid #3a3a3c; border-bottom: 2px solid #3a3a3c; padding: 8px 12px 8px 12px; border-radius: 10px; background: #2c2c2e; background-clip: padding; color: #ffffff; font-size: 14px; }
-            QLineEdit#PathDisplay { color: #f2f2f7; font-size: 15px; font-weight: 500; }
-            QLineEdit:focus, QComboBox:focus { border: 1px solid #3a3a3c; border-bottom: 2px solid #0a84ff; }
-            QComboBox::drop-down { border: none; width: 22px; }
-            QPushButton { background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }
-            QPushButton:hover { background-color: #409cff; }
-            QPushButton#SecondaryBtn { background-color: #3a3a3c; font-size: 13px; font-weight: normal; }
-            QLabel#YtDlpStatusLabel { color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }
-            QLabel#AppStatusLabel { color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }
-            #SettingsBtn { background: transparent; color: #ffffff; font-size: 13px; }
-            #ThemeBtn { background-color: #3a3a3c; color: #ffffff; font-weight: normal; }
-            QProgressBar {
-                border: none;
-                background-color: #2c2c2e;
-                border-radius: 4px;
-                text-align: center;
-                color: #ffffff;
-                font-size: 11px;
-                font-weight: 600;
-            }
-            QProgressBar::chunk {
-                border-radius: 4px;
-                background: #0a84ff;
-            }
-            """
-        else:  # settings
-            return """
-            QDialog { background: #1c1c1e; }
-            QLabel { color: #ffffff; font-size: 13px; font-weight: bold; }
-            QCheckBox { color: #ffffff; font-size: 13px; }
-            QLineEdit { border: 1px solid #3a3a3c; border-bottom: 2px solid #3a3a3c; padding: 8px 12px 8px 12px; border-radius: 10px; background: #2c2c2e; background-clip: padding; color: #0a84ff; font-family: 'Consolas'; font-size: 14px; }
-            QLineEdit:focus { border: 1px solid #3a3a3c; border-bottom: 2px solid #0a84ff; }
-            QPushButton { background-color: #2c2c2e; color: white; border-radius: 10px; border: 1px solid #3a3a3c; font-size: 13px; padding: 2px; }
-            QPushButton:hover { background-color: #3a3a3c; }
-            QPushButton:checked { background-color: #0a84ff; border: none; font-weight: bold; }
-            #ClearBtn { color: #ff453a; }
-            #SaveBtn { background-color: #0a84ff; font-weight: bold; font-size: 15px; border: none; }
-            """
+    theme_file, _json_path = resolve_theme_assets(str(theme))
+
+    cache_key = f"{theme}:{widget_type}:{theme_file}"
+    if cache_key in _THEME_CSS_CACHE:
+        return _THEME_CSS_CACHE[cache_key]
+
+    if theme_file and theme_file.exists():
+        try:
+            text = theme_file.read_text(encoding="utf-8")
+            _THEME_CSS_CACHE[cache_key] = text
+            return text
+        except Exception:
+            pass
+
+    # ファイルが見つからない、またはエラー時の最小限のフォールバック
+    if "light" in theme:
+        fallback = "QWidget#Main { background-color: #ffffff; } QLabel { color: #333333; }"
+    else:
+        fallback = "QWidget#Main { background-color: #000000; } QLabel { color: #ffffff; }"
+    _THEME_CSS_CACHE[cache_key] = fallback
+    return fallback
+
+def parse_theme_metadata(theme="dark", widget_type="main"):
+    """CSSファイル内のMETADATAセクションから配色情報を取得"""
+    theme_file, _json_path = resolve_theme_assets(str(theme))
+    
+    cache_key = f"{theme}:{widget_type}:meta"
+    if cache_key in _THEME_PROFILE_CACHE:
+        cached = _THEME_PROFILE_CACHE[cache_key]
+        return dict(cached) if isinstance(cached, dict) else {}
+
+    colors = {}
+    if theme_file and theme_file.exists():
+        try:
+            content = theme_file.read_text(encoding="utf-8")
+            match = re.search(r"METADATA\s*(.*?)\s*END_METADATA", content, re.DOTALL)
+            if match:
+                for line in match.group(1).strip().splitlines():
+                    if ":" in line:
+                        k, v = line.split(":", 1)
+                        colors[k.strip()] = v.strip()
+        except Exception:
+            pass
+    _THEME_PROFILE_CACHE[cache_key] = dict(colors)
+    return colors
+
+def load_theme_profile(theme: str):
+    """テーマJSONから colors/props を取得（あれば）"""
+    if theme in _THEME_PROFILE_CACHE:
+        colors, props = _THEME_PROFILE_CACHE[theme]
+        return dict(colors), dict(props)
+    _css_path, json_path = resolve_theme_assets(str(theme))
+    if json_path and json_path.exists():
+        try:
+            data = _read_json_cached(json_path)
+            if isinstance(data, dict):
+                profile = data.get(theme) or data.get("default")
+                if isinstance(profile, dict):
+                    colors = profile.get("colors") or {}
+                    props = profile.get("props") or {}
+                    colors = colors if isinstance(colors, dict) else {}
+                    props = props if isinstance(props, dict) else {}
+                    _THEME_PROFILE_CACHE[theme] = (dict(colors), dict(props))
+                    return dict(colors), dict(props)
+        except Exception:
+            pass
+    _THEME_PROFILE_CACHE[theme] = ({}, {})
+    return {}, {}
+
+def load_theme_info(theme: str):
+    """テーマ情報（info）を取得"""
+    if theme in _THEME_INFO_CACHE:
+        return dict(_THEME_INFO_CACHE[theme])
+    app_dir = get_runtime_app_dir()
+    base = app_dir / "theme"
+    if not base.exists():
+        base = Path(__file__).parent / "theme"
+    if not base.exists():
+        return {}
+    for json_path in base.rglob("*.json"):
+        try:
+            data = _read_json_cached(json_path)
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        if theme in data and isinstance(data.get("info"), dict):
+            info = data.get("info") or {}
+            if isinstance(info, dict):
+                _THEME_INFO_CACHE[theme] = dict(info)
+                return dict(info)
+    _THEME_INFO_CACHE[theme] = {}
+    return {}
+
+def apply_dialog_theme(dialog: QDialog, theme: str):
+    """ダイアログにテーマを適用（白フラッシュ対策）"""
+    try:
+        dialog.setStyleSheet(get_stylesheet(theme, "main"))
+        dialog.setAutoFillBackground(True)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        colors, _props = load_theme_profile(theme)
+        bg = colors.get("bg")
+        if not bg:
+            bg = "#000000" if "dark" in theme else "#ffffff"
+        base = colors.get("input_bg") or colors.get("card") or bg
+        text = colors.get("input_text") or ("#ffffff" if "dark" in theme else "#000000")
+        pal = dialog.palette()
+        pal.setColor(QPalette.ColorRole.Window, QColor(bg))
+        pal.setColor(QPalette.ColorRole.Base, QColor(base))
+        pal.setColor(QPalette.ColorRole.Text, QColor(text))
+        dialog.setPalette(pal)
+        apply_titlebar_theme(dialog, theme)
+        QTimer.singleShot(0, lambda: apply_titlebar_theme(dialog, theme))
+    except Exception:
+        pass
+
+def apply_app_theme(app: QApplication, theme: str):
+    """アプリ全体にテーマを適用（初回の白フラッシュ対策）"""
+    if app is None:
+        return
+    try:
+        app.setStyleSheet(get_stylesheet(theme, "main"))
+        colors, _props = load_theme_profile(theme)
+        bg = colors.get("bg")
+        if not bg:
+            bg = "#000000" if "dark" in theme else "#ffffff"
+        base = colors.get("input_bg") or colors.get("card") or bg
+        text = colors.get("input_text") or ("#ffffff" if "dark" in theme else "#000000")
+        pal = app.palette()
+        pal.setColor(QPalette.ColorRole.Window, QColor(bg))
+        pal.setColor(QPalette.ColorRole.Base, QColor(base))
+        pal.setColor(QPalette.ColorRole.Text, QColor(text))
+        app.setPalette(pal)
+    except Exception:
+        pass
+
+def apply_titlebar_theme(widget: QWidget, theme: str):
+    """Windowsのタイトルバーをテーマに合わせる"""
+    if os.name != "nt" or widget is None:
+        return
+    try:
+        import ctypes
+        hwnd = int(widget.winId())
+        use_dark = 1 if "dark" in str(theme) else 0
+        value = ctypes.c_int(use_dark)
+        # Try Windows 10/11 attribute IDs
+        for attr in (20, 19):
+            try:
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd,
+                    attr,
+                    ctypes.byref(value),
+                    ctypes.sizeof(value),
+                )
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+def warm_theme_cache(theme: str):
+    """テーマのCSS/JSONを先読みしてキャッシュ（初回の白フラッシュ対策）"""
+    try:
+        get_stylesheet(theme, "main")
+        get_stylesheet(theme, "settings")
+        load_theme_profile(theme)
+    except Exception:
+        pass
+
+def scan_theme_options():
+    """themeフォルダから利用可能なテーマ一覧を収集"""
+    global _THEME_OPTIONS_CACHE
+    if _THEME_OPTIONS_CACHE is not None:
+        return list(_THEME_OPTIONS_CACHE)
+    bases = _theme_base_dirs()
+    themes = []
+    for base in bases:
+        for css_path in base.rglob("*.css"):
+            name = css_path.stem
+            if css_path.parent.name == "default" and name.startswith("default_"):
+                theme_name = name.replace("default_", "", 1)
+            else:
+                theme_name = name
+            if theme_name not in themes:
+                themes.append(theme_name)
+    # フォールバック
+    if not themes:
+        themes = ["dark", "light"]
+    _THEME_OPTIONS_CACHE = list(themes)
+    return list(themes)
 
 def lerp_color(start_color, end_color, progress):
     """16進数カラーコードを線形補間"""
-    # 16進数から RGB に解析
-    start_rgb = tuple(int(start_color[i:i+2], 16) for i in (1, 3, 5))
-    end_rgb = tuple(int(end_color[i:i+2], 16) for i in (1, 3, 5))
-    
-    # 補間
-    interpolated = tuple(int(s + (e - s) * progress) for s, e in zip(start_rgb, end_rgb))
-    
-    # RGB から16進数文字列に変換
-    return '#{:02x}{:02x}{:02x}'.format(*interpolated)
+    try:
+        # 16進数から RGB に解析
+        start_rgb = tuple(int(start_color[i:i+2], 16) for i in (1, 3, 5))
+        end_rgb = tuple(int(end_color[i:i+2], 16) for i in (1, 3, 5))
+        
+        # 補間
+        interpolated = tuple(int(s + (e - s) * progress) for s, e in zip(start_rgb, end_rgb))
+        
+        # RGB から16進数文字列に変換
+        return '#{:02x}{:02x}{:02x}'.format(*interpolated)
+    except Exception:
+        return end_color
 
 def get_config_path() -> Path:
     if is_packaged_executable():
@@ -365,6 +504,11 @@ def format_release_date(iso_text: str) -> str:
     return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
 
 _LANG_CACHE = {}
+_THEME_CSS_CACHE = {}
+_THEME_PROFILE_CACHE = {}
+_THEME_INFO_CACHE = {}
+_THEME_OPTIONS_CACHE = None
+_THEME_JSON_CACHE = {}
 
 def load_language_dict(lang_code: str) -> dict:
     code = (lang_code or "ja").strip().lower()
@@ -395,6 +539,17 @@ def i18n(cfg: dict, key: str, default: str) -> str:
     data = load_language_dict(lang_code)
     value = data.get(key, default)
     return str(value) if value is not None else default
+
+def _read_json_cached(path: Path):
+    key = str(path)
+    if key in _THEME_JSON_CACHE:
+        return _THEME_JSON_CACHE[key]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        data = None
+    _THEME_JSON_CACHE[key] = data
+    return data
 
 
 def load_config():
@@ -918,11 +1073,15 @@ class YtDlpCheckThread(QThread):
         return "不明"
 
     def _fetch_latest_version(self):
-        url = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
-        req = urllib.request.Request(url, headers={"User-Agent": "Sagami-Youtube-Downloader"})
+        latest_url = "https://github.com/yt-dlp/yt-dlp/releases/latest"
+        req = urllib.request.Request(latest_url, headers={"User-Agent": "Sagami-Youtube-Downloader"})
         with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read().decode("utf-8", errors="replace"))
-        return str(data.get("tag_name", "")).strip()
+            final_url = response.geturl()
+        parsed = urllib.parse.urlparse(final_url)
+        parts = (parsed.path or "").strip("/").split("/")
+        if len(parts) >= 4 and parts[-2] == "tag":
+            return parts[-1]
+        return ""
 
     def run(self):
         yt_cmd = resolve_yt_dlp_command()
@@ -982,6 +1141,13 @@ class AppUpdateThread(QThread):
         with self._urlopen_with_ssl_fallback(req, url, timeout=10) as response:
             payload = response.read().decode("utf-8")
         return json.loads(payload)
+
+    def _http_get_text(self, url: str):
+        req = urllib.request.Request(url, headers={"User-Agent": "Sagami-Youtube-Downloader"})
+        with self._urlopen_with_ssl_fallback(req, url, timeout=10) as response:
+            payload = response.read().decode("utf-8", errors="replace")
+            final_url = response.geturl()
+        return payload, final_url
 
     def _is_known_update_host(self, url: str) -> bool:
         host = (urllib.parse.urlparse(url).hostname or "").lower()
@@ -1043,6 +1209,52 @@ class AppUpdateThread(QThread):
         preferred = [u for u in urls if ("setup" in u[0] or "installer" in u[0])]
         return (preferred[0] if preferred else urls[0])[1]
 
+    def _github_release_latest_page(self, url: str) -> str:
+        text = (url or "").strip()
+        if text.endswith("/"):
+            text = text[:-1]
+        match = re.match(r"^https?://github\.com/([^/]+)/([^/]+)$", text)
+        if not match:
+            raise ValueError("GitHubリポジトリURLの形式が不正です。")
+        owner = match.group(1)
+        repo = match.group(2)
+        return f"https://github.com/{owner}/{repo}/releases/latest"
+
+    def _extract_version_from_release_url(self, url: str) -> str:
+        if not url:
+            return ""
+        parsed = urllib.parse.urlparse(url)
+        parts = (parsed.path or "").strip("/").split("/")
+        if len(parts) >= 4 and parts[-2] == "tag":
+            return parts[-1]
+        return ""
+
+    def _pick_installer_from_html(self, html: str, base_url: str) -> str:
+        if not html:
+            return ""
+        hrefs = re.findall(r'href="([^"]+)"', html, flags=re.IGNORECASE)
+        urls = []
+        for href in hrefs:
+            if not href:
+                continue
+            if href.startswith("/"):
+                full = "https://github.com" + href
+            else:
+                full = href
+            if not full.startswith("http"):
+                continue
+            low = full.lower()
+            if not (low.endswith(".exe") or low.endswith(".msi")):
+                continue
+            if "/releases/download/" not in low:
+                continue
+            name = low.split("/")[-1]
+            urls.append((name, full))
+        if not urls:
+            return ""
+        preferred = [u for u in urls if ("setup" in u[0] or "installer" in u[0])]
+        return (preferred[0] if preferred else urls[0])[1]
+
     def _load_release(self):
         if not self.source_url:
             raise ValueError("更新元URLが未設定です。")
@@ -1057,6 +1269,18 @@ class AppUpdateThread(QThread):
                 return latest_version, release_page_url, notes, published_at, installer_url
         except urllib.error.HTTPError as e:
             # 404 は「Release未作成」の可能性が高いので tags へフォールバック
+            if getattr(e, "code", None) in (403, 429):
+                try:
+                    latest_page = self._github_release_latest_page(self.source_url)
+                    html, final_url = self._http_get_text(latest_page)
+                    latest_version = self._extract_version_from_release_url(final_url)
+                    release_page_url = final_url or latest_page
+                    installer_url = self._pick_installer_from_html(html, release_page_url)
+                    notes = "GitHub API の制限のため、HTMLから取得しました。"
+                    if latest_version:
+                        return latest_version, release_page_url, notes, "", installer_url
+                except Exception:
+                    raise
             if getattr(e, "code", None) != 404:
                 raise
 
@@ -1110,6 +1334,7 @@ class Settings(QDialog):
         super().__init__(parent)
         self.parent_win = parent
         self.cfg = load_config()
+        apply_dialog_theme(self, str(self.cfg.get("theme", "dark")))
         self.setWindowTitle(i18n(self.cfg, "settings.window_title", "出力設定"))
         self.resize(500, 700)
         self.setMinimumSize(460, 600)
@@ -1127,6 +1352,7 @@ class Settings(QDialog):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         
         scroll_content = QWidget()
+        scroll_content.setObjectName("SettingsContent")
         layout = QVBoxLayout(scroll_content)
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(14)
@@ -1135,11 +1361,41 @@ class Settings(QDialog):
         layout.addWidget(QLabel(i18n(self.cfg, "settings.language_label", "言語 / Language")))
         self.lang_combo = QComboBox()
         self.lang_combo.addItem(i18n(self.cfg, "settings.lang_ja", "日本語"), "ja")
-        self.lang_combo.addItem("English", "en")
+        self.lang_combo.addItem(i18n(self.cfg, "settings.lang_en", "English"), "en")
+        self.lang_combo.addItem(i18n(self.cfg, "settings.lang_ko", "한국어"), "ko")
+        self.lang_combo.addItem(i18n(self.cfg, "settings.lang_zh", "中文(简体)"), "zh")
         lang_idx = self.lang_combo.findData(str(self.cfg.get("language", "ja")))
         self.lang_combo.setCurrentIndex(lang_idx if lang_idx >= 0 else 0)
         self.lang_combo.setMinimumHeight(40)
         layout.addWidget(self.lang_combo)
+
+        # Theme
+        layout.addSpacing(4)
+        layout.addWidget(QLabel(i18n(self.cfg, "settings.theme_label", "テーマ")))
+        self.theme_combo = QComboBox()
+        self._all_theme_options = list(scan_theme_options())
+        for theme_name in self._all_theme_options:
+            label = theme_name.replace("_", " ").title()
+            self.theme_combo.addItem(label, theme_name)
+        theme_idx = self.theme_combo.findData(str(self.cfg.get("theme", "dark")))
+        self.theme_combo.setCurrentIndex(theme_idx if theme_idx >= 0 else 0)
+        self.theme_combo.setMinimumHeight(40)
+        layout.addWidget(self.theme_combo)
+
+        info_row = QHBoxLayout()
+        info_row.addWidget(QLabel(i18n(self.cfg, "settings.theme_info_label", "テーマ情報")))
+        self.btn_theme_info = QPushButton(i18n(self.cfg, "settings.theme_info_show", "表示"))
+        self.btn_theme_info.setMinimumHeight(32)
+        self.btn_theme_info.clicked.connect(self.show_theme_info)
+        self.btn_theme_refresh = QPushButton(i18n(self.cfg, "settings.theme_refresh", "テーマを更新"))
+        self.btn_theme_refresh.setMinimumHeight(32)
+        self.btn_theme_refresh.clicked.connect(self.refresh_theme_list)
+        info_row.addStretch()
+        info_row.addWidget(self.btn_theme_info)
+        info_row.addWidget(self.btn_theme_refresh)
+        layout.addLayout(info_row)
+        self.theme_combo.currentIndexChanged.connect(self.update_theme_info)
+        self.update_theme_info()
 
         # Output Format
         layout.addSpacing(4)
@@ -1242,16 +1498,60 @@ class Settings(QDialog):
         self.apply_style()
 
     def apply_style(self):
-        self.setStyleSheet(get_stylesheet(self.parent_win.cfg.get("theme", "dark"), "settings"))
+        theme = self.parent_win.cfg.get("theme", "dark")
+        self.setStyleSheet(get_stylesheet(theme, "settings"))
 
     def add_tag(self, code):
         current = self.template_display.text()
         new_text = (current + " " + code) if current else code
         self.template_display.setText(new_text)
 
+    def update_theme_info(self):
+        theme = self.theme_combo.currentData() or ""
+        info = load_theme_info(str(theme))
+        self._theme_info_cache = info if isinstance(info, dict) else {}
+
+    def show_theme_info(self):
+        info = getattr(self, "_theme_info_cache", {}) or {}
+        if not info:
+            QMessageBox.information(self, "テーマ情報", "このテーマの情報はありません。")
+            return
+        parts = []
+        if info.get("theme_name"):
+            parts.append(f"テーマ: {info.get('theme_name')}")
+        if info.get("author"):
+            parts.append(f"作者: {info.get('author')}")
+        if info.get("description"):
+            parts.append(str(info.get("description")))
+        QMessageBox.information(self, "テーマ情報", "\n".join(parts))
+
+    def refresh_theme_list(self):
+        try:
+            global _THEME_OPTIONS_CACHE, _THEME_CSS_CACHE, _THEME_PROFILE_CACHE, _THEME_INFO_CACHE, _THEME_JSON_CACHE
+            _THEME_OPTIONS_CACHE = None
+            _THEME_CSS_CACHE.clear()
+            _THEME_PROFILE_CACHE.clear()
+            _THEME_INFO_CACHE.clear()
+            _THEME_JSON_CACHE.clear()
+        except Exception:
+            pass
+        current = self.theme_combo.currentData() or self.cfg.get("theme", "dark")
+        self._all_theme_options = list(scan_theme_options())
+        self.theme_combo.blockSignals(True)
+        self.theme_combo.clear()
+        for theme_name in self._all_theme_options:
+            label = theme_name.replace("_", " ").title()
+            self.theme_combo.addItem(label, theme_name)
+        theme_idx = self.theme_combo.findData(str(current))
+        self.theme_combo.setCurrentIndex(theme_idx if theme_idx >= 0 else 0)
+        self.theme_combo.blockSignals(False)
+        self.update_theme_info()
+
+
     def save(self):
         try:
             self.cfg["language"] = self.lang_combo.currentData() or "ja"
+            self.cfg["theme"] = self.theme_combo.currentData() or "dark"
             self.cfg["format"] = self.format_combo.currentData() or "mp4"
             self.cfg["template"] = self.template_display.text() or "%(title)s"
             self.cfg["path"] = self.parent_win.path_display.text()
@@ -1259,6 +1559,12 @@ class Settings(QDialog):
             self.cfg["embed_subtitles"] = self.chk_subtitles.isChecked()
             self.cfg["cookies_browser"] = self.cookies_combo.currentData() or "none"
             save_config(self.cfg)
+            
+            # 親ウィンドウの設定とスタイルも更新
+            self.parent_win.cfg = self.cfg
+            self.parent_win.apply_style()
+            self.parent_win.apply_language_texts()
+            
             self.accept()
         except Exception as e:
             log_path = write_ini_log(
@@ -1278,6 +1584,10 @@ class LogViewerDialog(QDialog):
     def __init__(self, parent, logs_dir: Path):
         super().__init__(parent)
         self.logs_dir = logs_dir
+        theme = "dark"
+        if parent and hasattr(parent, "cfg"):
+            theme = str(getattr(parent, "cfg", {}).get("theme", "dark"))
+        apply_dialog_theme(self, theme)
         self.setWindowTitle("ログビュー")
         self.resize(760, 520)
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
@@ -1340,8 +1650,12 @@ class LogViewerDialog(QDialog):
 
 
 class PlaylistSelectDialog(QDialog):
-    def __init__(self, parent, entries, source_label: str = "プレイリスト"):
+    def __init__(self, parent, entries, source_label: str = "プレイリスト", source_name: str = ""):
         super().__init__(parent)
+        theme = "dark"
+        if parent and hasattr(parent, "cfg"):
+            theme = str(getattr(parent, "cfg", {}).get("theme", "dark"))
+        apply_dialog_theme(self, theme)
         self.setWindowTitle("動画選択")
         self.resize(620, 520)
         self.result_mode = "cancel"
@@ -1354,7 +1668,13 @@ class PlaylistSelectDialog(QDialog):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
 
-        label = QLabel(f"{source_label}を検出しました。（{len(entries)}件）\nダウンロードする動画を選択してください。")
+        if source_label == "チャンネル" and source_name:
+            head = f"動画を検出しました。チャンネル名　{source_name}"
+        elif source_name:
+            head = f"{source_label}「{source_name}」を検出しました。（{len(entries)}件）"
+        else:
+            head = f"{source_label}を検出しました。（{len(entries)}件）"
+        label = QLabel(f"{head}\nダウンロードする動画を選択してください。")
         label.setWordWrap(True)
         layout.addWidget(label)
 
@@ -1372,7 +1692,21 @@ class PlaylistSelectDialog(QDialog):
         search_row = QHBoxLayout()
         search_row.addWidget(QLabel("検索"))
         self.search_input = QLineEdit()
+        self.search_input.setObjectName("PlaylistSearch")
         self.search_input.setPlaceholderText("タイトルで検索...")
+        
+        # テーマに合わせてテキスト色を調整しつつ、プレースホルダーの色を灰色に設定
+        # Qtのスタイルシートではプレースホルダーの色を直接指定できないためPaletteを使用
+        search_text_color = "#ffffff" if "dark" in theme else "#000000"
+        self.search_input.setStyleSheet(f"QLineEdit#PlaylistSearch {{ color: {search_text_color}; }}")
+        
+        try:
+            pal = self.search_input.palette()
+            # PlaceholderText役割を使用して灰色に設定
+            pal.setColor(QPalette.ColorRole.PlaceholderText, QColor("#8e8e93"))
+            self.search_input.setPalette(pal)
+        except Exception:
+            pass
         self.search_input.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self.search_input, 1)
         layout.addLayout(search_row)
@@ -1403,6 +1737,24 @@ class PlaylistSelectDialog(QDialog):
         actions.addWidget(self.btn_download_selected)
         actions.addWidget(self.btn_cancel)
         layout.addLayout(actions)
+        self._apply_startup_palette()
+
+    def _apply_startup_palette(self):
+        theme = ""
+        if self.parent() and hasattr(self.parent(), "cfg"):
+            theme = str(getattr(self.parent(), "cfg", {}).get("theme", "dark"))
+        if not theme:
+            theme = "dark"
+        colors, _props = load_theme_profile(theme)
+        bg = colors.get("bg")
+        if not bg:
+            bg = "#000000" if "dark" in theme else "#ffffff"
+        try:
+            pal = self.palette()
+            pal.setColor(QPalette.ColorRole.Window, QColor(bg))
+            self.setPalette(pal)
+        except Exception:
+            pass
 
     def select_all(self):
         for i in range(self.list_widget.count()):
@@ -1520,9 +1872,7 @@ class Main(QWidget):
             return None
 
     def theme_button_text(self, theme_name: str) -> str:
-        if theme_name == "dark":
-            return self.t("main.theme_dark", "Dark Mode")
-        return self.t("main.theme_light", "Light Mode")
+        return theme_name.replace("_", " ").title()
 
     def apply_language_texts(self):
         self.btn_theme.setText(self.theme_button_text(self.cfg.get("theme", "dark")))
@@ -1584,12 +1934,15 @@ class Main(QWidget):
         super().__init__()
         self.setObjectName("Main")
         self.setWindowTitle("Sagami Youtube Downloader")
+        self.setAutoFillBackground(True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         icon_path = resolve_app_icon_path()
         if icon_path:
             self.setWindowIcon(QIcon(str(icon_path)))
         self.resize(920, 700)
         self.setMinimumSize(720, 600)
         self.cfg = load_config()
+        self._apply_startup_palette()
         self.is_animating = False  # アニメーション中かどうかを追跡
         self.download_thread = None
         self.updater = None
@@ -1622,6 +1975,7 @@ class Main(QWidget):
         card = QFrame()
         card.setObjectName("Card")
         card.setFixedWidth(520)
+        self.card = card
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(28, 26, 28, 24)
         card_layout.setSpacing(5)
@@ -1687,7 +2041,9 @@ class Main(QWidget):
         self.quality_combo = QComboBox()
         self.quality_combo.addItems(["Best", "2160p", "1440p", "1080p", "720p", "480p", "360p"])
         self.quality_combo.setMinimumHeight(34)
-        self.quality_combo.setCurrentText(self.cfg.get("video_quality", "Best"))
+        q_text = str(self.cfg.get("video_quality", "Best"))
+        q_idx = self.quality_combo.findText(q_text)
+        self.quality_combo.setCurrentIndex(q_idx if q_idx >= 0 else self.quality_combo.findText("Best"))
 
         self.fps_combo = QComboBox()
         self.fps_combo.addItem("Any", "Any")
@@ -1788,8 +2144,29 @@ class Main(QWidget):
         self.setAcceptDrops(True)
         self.apply_language_texts()
         self.apply_style()
+        QTimer.singleShot(0, lambda: apply_titlebar_theme(self, self.cfg.get("theme", "dark")))
         QTimer.singleShot(700, self.check_app_update_on_startup)
         QTimer.singleShot(1200, self.check_ytdlp_on_startup)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        try:
+            apply_titlebar_theme(self, self.cfg.get("theme", "dark"))
+        except Exception:
+            pass
+
+    def _apply_startup_palette(self):
+        theme = str(self.cfg.get("theme", "dark"))
+        colors, _props = load_theme_profile(theme)
+        bg = colors.get("bg")
+        if not bg:
+            bg = "#000000" if "dark" in theme else "#ffffff"
+        try:
+            pal = self.palette()
+            pal.setColor(QPalette.ColorRole.Window, QColor(bg))
+            self.setPalette(pal)
+        except Exception:
+            pass
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() or event.mimeData().hasText():
@@ -1814,7 +2191,12 @@ class Main(QWidget):
             self.url.setCursorPosition(0)
 
     def apply_style(self):
-        self.setStyleSheet(get_stylesheet(self.cfg.get("theme", "dark"), "main"))
+        theme = self.cfg.get("theme", "dark")
+        self.setStyleSheet(get_stylesheet(theme, "main"))
+        app = QApplication.instance()
+        if app is not None:
+            apply_app_theme(app, theme)
+        apply_titlebar_theme(self, theme)
 
     def _messagebox_stylesheet(self) -> str:
         theme = self.cfg.get("theme", "dark")
@@ -1903,7 +2285,9 @@ class Main(QWidget):
         self.audio_quality_combo.setEnabled(not is_mp4)
 
         if is_mp4:
-            self.quality_combo.setCurrentText(self.cfg.get("video_quality", "Best"))
+            q_text = str(self.cfg.get("video_quality", "Best"))
+            q_idx = self.quality_combo.findText(q_text)
+            self.quality_combo.setCurrentIndex(q_idx if q_idx >= 0 else self.quality_combo.findText("Best"))
             fps_idx = self.fps_combo.findData(str(self.cfg.get("video_fps", "Any")))
             self.fps_combo.setCurrentIndex(fps_idx if fps_idx >= 0 else 0)
         else:
@@ -1945,10 +2329,10 @@ class Main(QWidget):
             path = path + "/videos"
         return urllib.parse.urlunparse(parsed._replace(path=path))
 
-    def _fetch_playlist_entries(self, url: str, limit: int = 4000, order_mode: str = "default"):
+    def _fetch_playlist_entries(self, url: str, limit: int = 4000, order_mode: str = "default", is_channel: bool = False):
         yt_cmd = resolve_yt_dlp_command()
         if yt_cmd is None:
-            return None, "yt-dlp が見つかりません。"
+            return None, "yt-dlp が見つかりません。", {}
 
         flat_limit = max(1, int(limit))
         args = yt_cmd + ["--flat-playlist", "-J", "--playlist-end", str(flat_limit)]
@@ -1968,6 +2352,8 @@ class Main(QWidget):
         if proxy_url:
             args += ["--proxy", proxy_url]
 
+        label = "チャンネル" if is_channel else "プレイリスト"
+
         try:
             proc = subprocess.run(
                 args,
@@ -1980,13 +2366,13 @@ class Main(QWidget):
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except Exception as e:
-            return None, f"プレイリスト取得に失敗しました。\n{e}"
+            return None, f"{label}取得に失敗しました。\n{e}", {}
 
         if proc.returncode != 0:
             err_tail = tail_text(proc.stderr or "")
             if err_tail:
-                return None, f"プレイリストの取得に失敗しました。\n{err_tail}"
-            return None, "プレイリストの取得に失敗しました。"
+                return None, f"{label}の取得に失敗しました。\n{err_tail}", {}
+            return None, f"{label}の取得に失敗しました。", {}
 
         try:
             stdout_text = proc.stdout or ""
@@ -2006,12 +2392,17 @@ class Main(QWidget):
             if not data:
                 err_tail = tail_text(proc.stderr or "")
                 if err_tail:
-                    return None, f"プレイリスト情報の解析に失敗しました。\n{err_tail}"
-                return None, "プレイリスト情報の解析に失敗しました。"
+                    return None, f"{label}情報の解析に失敗しました。\n{err_tail}", {}
+                return None, f"{label}情報の解析に失敗しました。", {}
 
         entries = data.get("entries") or []
+        meta = {}
+        if isinstance(data, dict):
+            channel_name = data.get("channel") or data.get("uploader") or data.get("title") or ""
+            if channel_name:
+                meta["channel_name"] = str(channel_name)
         if not entries:
-            return None, None
+            return None, None, meta
 
         items = []
         idx_counter = 1
@@ -2034,7 +2425,7 @@ class Main(QWidget):
             })
             idx_counter += 1
 
-        return items, None
+        return items, None, meta
 
     def browse_folder(self):
         start_dir = self.path_display.text().strip() or os.path.join(os.path.expanduser("~"), "Downloads")
@@ -2259,13 +2650,16 @@ class Main(QWidget):
         if is_channel_url:
             url = self._normalize_channel_videos_url(url)
         if is_playlist_url or is_channel_url:
-            entries, error = self._fetch_playlist_entries(url, limit=4000, order_mode=playlist_order_mode)
+            entries, error, meta = self._fetch_playlist_entries(url, limit=4000, order_mode=playlist_order_mode)
             if error:
                 self._show_warning("プレイリスト", error)
                 return
             elif entries:
                 source_label = "チャンネル" if is_channel_url and not is_playlist_url else "プレイリスト"
-                dlg = PlaylistSelectDialog(self, entries, source_label=source_label)
+                source_name = ""
+                if is_channel_url and not is_playlist_url:
+                    source_name = str((meta or {}).get("channel_name", "") or "")
+                dlg = PlaylistSelectDialog(self, entries, source_label=source_label, source_name=source_name)
                 if dlg.exec() != QDialog.DialogCode.Accepted:
                     return
                 if dlg.result_mode == "selected":
@@ -2427,33 +2821,59 @@ class Main(QWidget):
         # アニメーション中なら処理をスキップ
         if self.is_animating:
             return
+        try:
+            self.setWindowOpacity(1.0)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        except Exception:
+            pass
         
         # アニメーション中フラグを設定
         self.is_animating = True
         self.btn_theme.setEnabled(False)
         
-        current_theme = self.cfg.get("theme", "dark")
-        new_theme = "light" if current_theme == "dark" else "dark"
-        
-        # 既存のアニメーションがあれば停止
-        if hasattr(self, 'theme_anim'):
-            try:
-                self.theme_anim.stop()
-            except:
-                pass
-        
-        # アニメーション用の値を0.0→1.0で変更
-        self.theme_anim = QPropertyAnimation(self, b"animProgress")
-        self.theme_anim.setDuration(600)
-        self.theme_anim.setStartValue(0.0)
-        self.theme_anim.setEndValue(1.0)
-        self.theme_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-        self.theme_anim.valueChanged.connect(lambda v: self._on_theme_anim_value_changed(v, new_theme))
-        self.theme_anim.finished.connect(lambda: self._on_theme_anim_finished(new_theme))
+        current_theme = str(self.cfg.get("theme", "dark"))
+        if current_theme.endswith("_dark"):
+            base = current_theme.rsplit("_", 1)[0]
+            new_theme = f"{base}_light"
+        elif current_theme.endswith("_light"):
+            base = current_theme.rsplit("_", 1)[0]
+            new_theme = f"{base}_dark"
+        elif current_theme == "dark":
+            new_theme = "light"
+        elif current_theme == "light":
+            new_theme = "dark"
+        else:
+            new_theme = "light"
+        # テーマを確定してからカードだけ軽く動かす（色の混在を防止）
+        self.finalize_theme(new_theme, keep_animating=True)
+        self._start_theme_card_anim()
+
+    def _start_theme_card_anim(self):
+        try:
+            rect = self.card.geometry()
+        except Exception:
+            self._end_theme_card_anim()
+            return
+        shrink = QRect(rect.x() + 4, rect.y() + 4, max(0, rect.width() - 8), max(0, rect.height() - 8))
+        self.theme_anim = QPropertyAnimation(self.card, b"geometry")
+        self.theme_anim.setDuration(180)
+        self.theme_anim.setStartValue(shrink)
+        self.theme_anim.setEndValue(rect)
+        self.theme_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
+        self.theme_anim.finished.connect(self._end_theme_card_anim)
         self.theme_anim.start()
+
+    def _end_theme_card_anim(self):
+        self.is_animating = False
+        self.btn_theme.setEnabled(True)
 
     def _on_theme_anim_value_changed(self, value, new_theme):
         try:
+            try:
+                self.setWindowOpacity(1.0)
+                self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            except Exception:
+                pass
             self.update_theme_color(float(value), new_theme)
         except Exception as e:
             self._handle_theme_error("valueChanged", e)
@@ -2490,16 +2910,134 @@ class Main(QWidget):
             "btn_bg": "#e8e8ea",
             "btn_text": "#000000",
         }
-        
+
+        neon_light_colors = {
+            "bg": "#f3f3f3",
+            "card": "#ffffff",
+            "label": "#1f1f1f",
+            "title": "#1f1f1f",
+            "input_bg": "#ffffff",
+            "input_text": "#1f1f1f",
+            "input_border": "#bdbdbd",
+            "btn_bg": "#e7e7e7",
+            "btn_text": "#1f1f1f",
+        }
+
+        neon_dark_colors = {
+            "bg": "#1f1f1f",
+            "card": "#2b2b2b",
+            "label": "#d6d6d6",
+            "title": "#ffffff",
+            "input_bg": "#2b2b2b",
+            "input_text": "#ffffff",
+            "input_border": "#3a3a3a",
+            "btn_bg": "#3a3a3a",
+            "btn_text": "#ffffff",
+        }
+
+        theme_props = {
+            "dark": {
+                "primary_btn": "#0a84ff",
+                "primary_btn_hover": "#409cff",
+                "focus_border": "#0a84ff",
+                "status_green": "#34c759",
+                "card_radius": 24,
+                "input_radius": 10,
+                "btn_radius": 10,
+                "label_size": 11,
+                "label_weight": 700,
+                "title_size": 24,
+                "title_weight": 200,
+                "input_padding": "8px 12px 8px 12px",
+                "button_padding": "10px",
+            },
+            "light": {
+                "primary_btn": "#0a84ff",
+                "primary_btn_hover": "#409cff",
+                "focus_border": "#0a84ff",
+                "status_green": "#34c759",
+                "card_radius": 24,
+                "input_radius": 10,
+                "btn_radius": 10,
+                "label_size": 11,
+                "label_weight": 700,
+                "title_size": 24,
+                "title_weight": 200,
+                "input_padding": "8px 12px 8px 12px",
+                "button_padding": "10px",
+            },
+            "neon_light": {
+                "primary_btn": "#0078d4",
+                "primary_btn_hover": "#1a86d9",
+                "focus_border": "#5e9bff",
+                "status_green": "#1a7f37",
+                "card_radius": 16,
+                "input_radius": 6,
+                "btn_radius": 6,
+                "label_size": 11,
+                "label_weight": 700,
+                "title_size": 22,
+                "title_weight": 600,
+                "input_padding": "8px 12px 8px 12px",
+                "button_padding": "10px",
+            },
+            "neon_dark": {
+                "primary_btn": "#0078d4",
+                "primary_btn_hover": "#1a86d9",
+                "focus_border": "#60a5ff",
+                "status_green": "#22c55e",
+                "card_radius": 16,
+                "input_radius": 6,
+                "btn_radius": 6,
+                "label_size": 11,
+                "label_weight": 700,
+                "title_size": 22,
+                "title_weight": 600,
+                "input_padding": "8px 12px 8px 12px",
+                "button_padding": "10px",
+            },
+        }
+
+        theme_colors = {
+            "dark": dark_colors,
+            "light": light_colors,
+            "neon_light": neon_light_colors,
+            "neon_dark": neon_dark_colors,
+        }
+
         # 現在のテーマと目標のテーマから、元の色と目標の色を決定
-        if new_theme == "light":
-            # ダーク → ライト
-            start_colors = dark_colors
-            end_colors = light_colors
-        else:
-            # ライト → ダーク
-            start_colors = light_colors
-            end_colors = dark_colors
+        start_theme = getattr(self, "_theme_anim_from", None) or self.cfg.get("theme", "dark")
+        end_theme = getattr(self, "_theme_anim_to", None) or new_theme
+        start_colors = theme_colors.get(start_theme, dark_colors).copy()
+        end_colors = theme_colors.get(end_theme, light_colors).copy()
+
+        # JSON優先でテーマ情報を取得
+        json_start_colors, json_start_props = load_theme_profile(start_theme)
+        json_end_colors, json_end_props = load_theme_profile(end_theme)
+
+        for key in ("bg", "card", "label", "title", "input_bg", "input_text", "input_border", "btn_bg", "btn_text"):
+            if key in json_start_colors:
+                start_colors[key] = json_start_colors[key]
+            if key in json_end_colors:
+                end_colors[key] = json_end_colors[key]
+
+        # JSONが無い場合はCSSのMETADATAをフォールバック
+        if not json_start_colors:
+            meta_start = parse_theme_metadata(start_theme)
+            for key in ("bg", "card", "label", "title", "input_bg", "input_text", "input_border", "btn_bg", "btn_text"):
+                if key in meta_start:
+                    start_colors[key] = meta_start[key]
+        if not json_end_colors:
+            meta_end = parse_theme_metadata(end_theme)
+            for key in ("bg", "card", "label", "title", "input_bg", "input_text", "input_border", "btn_bg", "btn_text"):
+                if key in meta_end:
+                    end_colors[key] = meta_end[key]
+        start_props = theme_props.get(start_theme, theme_props["dark"]).copy()
+        end_props = theme_props.get(end_theme, theme_props["light"]).copy()
+        if json_start_props:
+            start_props.update(json_start_props)
+        if json_end_props:
+            end_props.update(json_end_props)
         
         # 進度に応じて色を補間
         bg_color = lerp_color(start_colors["bg"], end_colors["bg"], progress)
@@ -2512,21 +3050,36 @@ class Main(QWidget):
         btn_bg = lerp_color(start_colors["btn_bg"], end_colors["btn_bg"], progress)
         btn_text = lerp_color(start_colors["btn_text"], end_colors["btn_text"], progress)
         
+        # テーマ固有プロパティも補間
+        primary_btn = lerp_color(start_props["primary_btn"], end_props["primary_btn"], progress)
+        primary_btn_hover = lerp_color(start_props["primary_btn_hover"], end_props["primary_btn_hover"], progress)
+        focus_border = lerp_color(start_props["focus_border"], end_props["focus_border"], progress)
+        status_green = lerp_color(start_props["status_green"], end_props["status_green"], progress)
+        card_radius = int(round(start_props["card_radius"] + (end_props["card_radius"] - start_props["card_radius"]) * progress))
+        input_radius = int(round(start_props["input_radius"] + (end_props["input_radius"] - start_props["input_radius"]) * progress))
+        btn_radius = int(round(start_props["btn_radius"] + (end_props["btn_radius"] - start_props["btn_radius"]) * progress))
+        label_size = end_props["label_size"]
+        label_weight = end_props["label_weight"]
+        title_size = end_props["title_size"]
+        title_weight = end_props["title_weight"]
+        input_padding = end_props["input_padding"]
+        button_padding = end_props["button_padding"]
+
         # 完全なスタイルシートを適用
         stylesheet = f"""
             QWidget#Main {{ background-color: {bg_color}; }}
-            QFrame#Card {{ background-color: {card_color}; border-radius: 24px; border: 1px solid {input_border}; }}
-            QLabel {{ color: {label_color}; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }}
-            QLabel#Title {{ color: {title_color}; font-size: 24px; font-weight: 200; margin-left: 0px; }}
-            QLineEdit, QComboBox {{ border: 1px solid {input_border}; border-bottom: 2px solid {input_border}; padding: 8px 12px 8px 12px; border-radius: 10px; background: {input_bg}; background-clip: padding; color: {input_text}; font-size: 14px; }}
+            QFrame#Card {{ background-color: {card_color}; border-radius: {card_radius}px; border: 1px solid {input_border}; }}
+            QLabel {{ color: {label_color}; font-size: {label_size}px; font-weight: {label_weight}; margin: 0px; margin-left: 2px; }}
+            QLabel#Title {{ color: {title_color}; font-size: {title_size}px; font-weight: {title_weight}; margin-left: 0px; }}
+            QLineEdit, QComboBox {{ border: 1px solid {input_border}; border-bottom: 2px solid {input_border}; padding: {input_padding}; border-radius: {input_radius}px; background: {input_bg}; background-clip: padding; color: {input_text}; font-size: 14px; }}
             QLineEdit#PathDisplay {{ color: {input_text}; font-size: 15px; font-weight: 500; }}
-            QLineEdit:focus, QComboBox:focus {{ border: 1px solid {input_border}; border-bottom: 2px solid #0a84ff; }}
+            QLineEdit:focus, QComboBox:focus {{ border: 1px solid {input_border}; border-bottom: 2px solid {focus_border}; }}
             QComboBox::drop-down {{ border: none; width: 22px; }}
-            QPushButton {{ background-color: #0a84ff; color: white; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; border: none; }}
-            QPushButton:hover {{ background-color: #409cff; }}
+            QPushButton {{ background-color: {primary_btn}; color: white; border-radius: {btn_radius}px; padding: {button_padding}; font-size: 14px; font-weight: 600; border: none; }}
+            QPushButton:hover {{ background-color: {primary_btn_hover}; }}
             QPushButton#SecondaryBtn {{ background-color: {btn_bg}; color: {btn_text}; font-size: 13px; font-weight: normal; }}
-            QLabel#YtDlpStatusLabel {{ color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }}
-            QLabel#AppStatusLabel {{ color: #34c759; font-size: 12px; font-weight: 600; margin-right: 4px; }}
+            QLabel#YtDlpStatusLabel {{ color: {status_green}; font-size: 12px; font-weight: 600; margin-right: 4px; }}
+            QLabel#AppStatusLabel {{ color: {status_green}; font-size: 12px; font-weight: 600; margin-right: 4px; }}
             #SettingsBtn {{ background: transparent; color: {btn_text}; font-size: 13px; }}
             #ThemeBtn {{ background-color: {btn_bg}; color: {btn_text}; font-weight: normal; }}
             QProgressBar {{
@@ -2540,12 +3093,12 @@ class Main(QWidget):
             }}
             QProgressBar::chunk {{
                 border-radius: 4px;
-                background: #0a84ff;
+                background: {primary_btn};
             }}
         """
         self.setStyleSheet(stylesheet)
 
-    def finalize_theme(self, new_theme):
+    def finalize_theme(self, new_theme, keep_animating: bool = False):
         """テーマを確定"""
         self.cfg["theme"] = new_theme
         save_config(self.cfg)
@@ -2556,14 +3109,28 @@ class Main(QWidget):
         # 完全なスタイルを再適用
         self.apply_style()
         self.apply_language_texts()
+        try:
+            self.setWindowOpacity(1.0)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            self._apply_startup_palette()
+        except Exception:
+            pass
         
         # アニメーション中フラグを解除
-        self.is_animating = False
-        self.btn_theme.setEnabled(True)
+        if not keep_animating:
+            self.is_animating = False
+            self.btn_theme.setEnabled(True)
 
 if __name__ == "__main__":
     qInstallMessageHandler(qt_message_filter)
     app = QApplication(sys.argv)
+    try:
+        startup_cfg = load_config()
+        startup_theme = str(startup_cfg.get("theme", "dark"))
+        warm_theme_cache(startup_theme)
+        apply_app_theme(app, startup_theme)
+    except Exception:
+        pass
     icon_path = resolve_app_icon_path()
     if icon_path:
         app.setWindowIcon(QIcon(str(icon_path)))

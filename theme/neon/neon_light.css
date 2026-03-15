@@ -1,0 +1,67 @@
+/*
+METADATA
+bg: #f6f7fb
+card: #ffffff
+label: #4b5363
+title: #1a2130
+input_bg: #ffffff
+input_text: #1a2130
+input_border: #7aa2f7
+btn_bg: #5ccfe6
+btn_text: #0f1420
+END_METADATA
+*/
+/* Neon Light Theme (Main + Settings) */
+/* Main */
+QWidget#Main { background-color: #f6f7fb; }
+QFrame#Card { background-color: #ffffff; border-radius: 18px; border: 1px solid #e3e7f0; }
+QLabel { color: #4b5363; font-size: 11px; font-weight: bold; margin: 0px; margin-left: 2px; }
+QLabel#Title { color: #1a2130; font-size: 22px; font-weight: 600; margin-left: 0px; }
+QLineEdit, QComboBox { border: 1px solid #7aa2f7; border-bottom: 2px solid #7aa2f7; padding: 9px 12px 9px 12px; border-radius: 10px; background: #ffffff; background-clip: padding; color: #1a2130; font-size: 14px; }
+QLineEdit#PathDisplay { color: #1a2130; font-size: 15px; font-weight: 500; }
+QLineEdit::placeholder { color: #8e8e93; }
+QLineEdit#PlaylistSearch::placeholder { color: #8e8e93; }
+QLineEdit:focus, QComboBox:focus { border: 1px solid #5ccfe6; border-bottom: 2px solid #5ccfe6; }
+QComboBox::drop-down { border: none; width: 22px; }
+QComboBox QAbstractItemView { background: #ffffff; color: #1a2130; border: 1px solid #dbe1f0; }
+QComboBox QAbstractItemView::item { padding: 6px 10px; }
+QComboBox QAbstractItemView::item:selected { background: #dfe7ff; color: #1a2130; }
+QPushButton { background-color: #5ccfe6; color: #0f1420; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 700; border: none; }
+QPushButton:hover { background-color: #8aa2ff; color: #ffffff; }
+QPushButton#SecondaryBtn { background-color: #eef1f8; color: #1a2130; font-size: 13px; font-weight: normal; border: 1px solid #dbe1f0; }
+QLabel#YtDlpStatusLabel { color: #15803d; font-size: 12px; font-weight: 600; margin-right: 4px; }
+QLabel#AppStatusLabel { color: #15803d; font-size: 12px; font-weight: 600; margin-right: 4px; }
+#SettingsBtn { background: transparent; color: #1a2130; font-size: 13px; }
+#ThemeBtn { background-color: #eef1f8; color: #1a2130; font-weight: normal; }
+QProgressBar {
+    border: none;
+    background-color: #eef1f8;
+    border-radius: 5px;
+    text-align: center;
+    color: #1a2130;
+    font-size: 11px;
+    font-weight: 600;
+}
+QProgressBar::chunk {
+    border-radius: 5px;
+    background: #5ccfe6;
+}
+
+/* Settings */
+QDialog { background: #f6f7fb; }
+QScrollArea { background: #f6f7fb; }
+QWidget#SettingsContent { background: #f6f7fb; }
+QDialog QLabel { color: #1a2130; font-size: 13px; font-weight: bold; }
+QDialog QCheckBox { color: #1a2130; font-size: 13px; }
+QDialog QLineEdit { border: 1px solid #7aa2f7; border-bottom: 2px solid #7aa2f7; padding: 9px 12px 9px 12px; border-radius: 10px; background: #ffffff; background-clip: padding; color: #1a2130; font-family: 'Consolas'; font-size: 14px; }
+QDialog QLineEdit::placeholder { color: #8e8e93; }
+QDialog QLineEdit#PlaylistSearch::placeholder { color: #8e8e93; }
+QDialog QLineEdit:focus { border: 1px solid #5ccfe6; border-bottom: 2px solid #5ccfe6; }
+QDialog QComboBox QAbstractItemView { background: #ffffff; color: #1a2130; border: 1px solid #dbe1f0; }
+QDialog QComboBox QAbstractItemView::item { padding: 6px 10px; }
+QDialog QComboBox QAbstractItemView::item:selected { background: #dfe7ff; color: #1a2130; }
+QDialog QPushButton { background-color: #eef1f8; color: #1a2130; border-radius: 10px; border: 1px solid #dbe1f0; font-size: 13px; padding: 2px; }
+QDialog QPushButton:hover { background-color: #e6eaf5; }
+QDialog QPushButton:checked { background-color: #5ccfe6; color: #0f1420; border: none; font-weight: bold; }
+QDialog #ClearBtn { color: #d14a5a; }
+QDialog #SaveBtn { background-color: #5ccfe6; color: #0f1420; font-weight: bold; font-size: 15px; border: none; }

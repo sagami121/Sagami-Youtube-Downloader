@@ -1,0 +1,63 @@
+{
+  "info": {
+    "author": "3aGaM1",
+    "theme_name": "Aurora",
+    "description": "Warm ember dusk with amber accents"
+  },
+  "aurora_light": {
+    "colors": {
+      "bg": "#fff7ed",
+      "card": "#ffffff",
+      "label": "#6b5b53",
+      "title": "#2b1f1a",
+      "input_bg": "#ffffff",
+      "input_text": "#2b1f1a",
+      "input_border": "#f97316",
+      "btn_bg": "#f97316",
+      "btn_text": "#1b1410"
+    },
+    "props": {
+      "primary_btn": "#f97316",
+      "primary_btn_hover": "#fb7185",
+      "focus_border": "#fb7185",
+      "status_green": "#15803d",
+      "card_radius": 20,
+      "input_radius": 10,
+      "btn_radius": 10,
+      "label_size": 11,
+      "label_weight": 700,
+      "title_size": 22,
+      "title_weight": 600,
+      "input_padding": "9px 12px 9px 12px",
+      "button_padding": "10px"
+    }
+  },
+  "aurora_dark": {
+    "colors": {
+      "bg": "#1b1410",
+      "card": "#231a15",
+      "label": "#c2b7ae",
+      "title": "#fff7ed",
+      "input_bg": "#1f1712",
+      "input_text": "#fff7ed",
+      "input_border": "#f97316",
+      "btn_bg": "#f97316",
+      "btn_text": "#1b1410"
+    },
+    "props": {
+      "primary_btn": "#f97316",
+      "primary_btn_hover": "#fb7185",
+      "focus_border": "#fb7185",
+      "status_green": "#22c55e",
+      "card_radius": 20,
+      "input_radius": 10,
+      "btn_radius": 10,
+      "label_size": 11,
+      "label_weight": 700,
+      "title_size": 22,
+      "title_weight": 600,
+      "input_padding": "9px 12px 9px 12px",
+      "button_padding": "10px"
+    }
+  }
+}
