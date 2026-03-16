@@ -14,9 +14,9 @@ from datetime import datetime
 from pathlib import Path
 from PySide6.QtWidgets import *
 from PySide6.QtCore import Qt, QThread, Signal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler, QEvent
-from PySide6.QtGui import QFont, QIcon, QDesktopServices, QColor, QPalette
+from PySide6.QtGui import QIcon, QDesktopServices, QColor, QPalette
 
-VERSION = "1.6.2"
+VERSION = "1.6.3"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
@@ -38,12 +38,6 @@ def get_runtime_app_dir() -> Path:
         # PyInstaller/Nuitkaの標準的な動作に合わせる
         return Path(sys.executable).parent
     return Path(__file__).parent
-
-def get_runtime_launch_target(app_dir: Path) -> Path:
-    """自分自身の実行パスを取得（再起動用など）"""
-    if not is_packaged_executable():
-        return (app_dir / "main.py").resolve()
-    return Path(sys.executable).resolve()
 
 def resolve_app_icon_path():
     """OSに合わせたアイコンパスを解決"""
@@ -345,14 +339,6 @@ def resolve_yt_dlp_command():
         return ["yt-dlp"]
     return None
 
-def resolve_aria2c_command():
-    app_dir = get_runtime_app_dir()
-    candidates = [app_dir / "aria2c.exe", app_dir / "aria2c"]
-    for candidate in candidates:
-        if candidate.exists() and candidate.is_file():
-            return str(candidate)
-    return shutil.which("aria2c")
-
 def resolve_ffmpeg_command():
     app_dir = get_runtime_app_dir()
     candidates = [
@@ -482,26 +468,6 @@ def extract_latest_changelog_entry(changelog_text: str) -> str:
         elif started:
             break
     return "\n".join(block).strip()
-
-def read_changelog_latest_entry() -> str:
-    try:
-        app_dir = get_runtime_app_dir()
-        changelog_path = app_dir / "changelog.txt"
-        if not changelog_path.exists():
-            return ""
-        text = changelog_path.read_text(encoding="utf-8")
-        return extract_latest_changelog_entry(text)
-    except Exception:
-        return ""
-
-def format_release_date(iso_text: str) -> str:
-    text = (iso_text or "").strip()
-    if not text:
-        return ""
-    match = re.match(r"^(\d{4})-(\d{2})-(\d{2})", text)
-    if not match:
-        return ""
-    return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
 
 _LANG_CACHE = {}
 _THEME_CSS_CACHE = {}
@@ -1609,8 +1575,11 @@ class LogViewerDialog(QDialog):
         actions = QHBoxLayout()
         actions.addStretch()
         self.btn_refresh = QPushButton("再読み込み")
+        self.btn_refresh.setIcon("refresh")
         self.btn_open_folder = QPushButton("フォルダを開く")
+        self.btn_open_folder.setIcon("folder_open")
         self.btn_close = QPushButton("閉じる")
+        self.btn_close.setIcon("close")
         self.btn_refresh.clicked.connect(self.refresh_logs)
         self.btn_open_folder.clicked.connect(self.open_logs_folder)
         self.btn_close.clicked.connect(self.close)
