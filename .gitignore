@@ -35,3 +35,4 @@ logs/
 *.dll
 *.so
 *.dylib
+*.exe
