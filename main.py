@@ -1,11 +1,13 @@
 import sys
 import subprocess
+import importlib.util
 import re
 import json
 import os
 import shutil
 import time
 import traceback
+import zipfile
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -21,8 +23,11 @@ CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
 APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
 
+YT_DLP_WIN_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+FFMPEG_WIN_ZIP_URL = "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-win-64.zip"
+FFPROBE_WIN_ZIP_URL = "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-win-64.zip"
+
 def is_packaged_executable() -> bool:
-    """パッケージ化（EXE/App/Bin）されているか判定"""
     if getattr(sys, "frozen", False):
         return True
     if "__compiled__" in globals():
@@ -32,21 +37,14 @@ def is_packaged_executable() -> bool:
     return False
 
 def get_runtime_app_dir() -> Path:
-    """実行ファイルまたはスクリプトの配置ディレクトリを取得"""
     if is_packaged_executable():
-        # macOS .app の場合は Contents/MacOS に実行ファイルがあるため、その親の親がリソースディレクトリになる場合があるが、
-        # PyInstaller/Nuitkaの標準的な動作に合わせる
         return Path(sys.executable).parent
     return Path(__file__).parent
 
 def resolve_app_icon_path():
-    """OSに合わせたアイコンパスを解決"""
     app_dir = get_runtime_app_dir()
-    # Windows用ico, または汎用png
     candidates = [
-        app_dir / "Sagami Youtube Downloader.ico",
-        app_dir / "icon.png",
-        app_dir / "assets" / "icon.png"
+        app_dir / "Sagami Youtube Downloader.ico"
     ]
     for icon_path in candidates:
         if icon_path.exists():
@@ -62,7 +60,6 @@ def qt_message_filter(_msg_type, _context, message):
         if err and hasattr(err, "write"):
             err.write(text + "\n")
     except Exception:
-        # Never crash app from Qt log handler.
         pass
 
 def _theme_base_dirs():
@@ -71,7 +68,6 @@ def _theme_base_dirs():
     return [b for b in bases if b.exists()]
 
 def resolve_theme_assets(theme: str):
-    """テーマ名からCSS/JSONパスを解決"""
     bases = _theme_base_dirs()
     css_path = None
     json_path = None
@@ -102,7 +98,6 @@ def resolve_theme_assets(theme: str):
     return css_path, json_path
 
 def get_stylesheet(theme="dark", widget_type="main"):
-    """テーマに応じたスタイルシートを返す"""
     theme_file, _json_path = resolve_theme_assets(str(theme))
 
     cache_key = f"{theme}:{widget_type}:{theme_file}"
@@ -126,7 +121,6 @@ def get_stylesheet(theme="dark", widget_type="main"):
     return fallback
 
 def parse_theme_metadata(theme="dark", widget_type="main"):
-    """CSSファイル内のMETADATAセクションから配色情報を取得"""
     theme_file, _json_path = resolve_theme_assets(str(theme))
     
     cache_key = f"{theme}:{widget_type}:meta"
@@ -150,7 +144,6 @@ def parse_theme_metadata(theme="dark", widget_type="main"):
     return colors
 
 def load_theme_profile(theme: str):
-    """テーマJSONから colors/props を取得（あれば）"""
     if theme in _THEME_PROFILE_CACHE:
         colors, props = _THEME_PROFILE_CACHE[theme]
         return dict(colors), dict(props)
@@ -173,7 +166,6 @@ def load_theme_profile(theme: str):
     return {}, {}
 
 def load_theme_info(theme: str):
-    """テーマ情報（info）を取得"""
     if theme in _THEME_INFO_CACHE:
         return dict(_THEME_INFO_CACHE[theme])
     app_dir = get_runtime_app_dir()
@@ -198,7 +190,6 @@ def load_theme_info(theme: str):
     return {}
 
 def apply_dialog_theme(dialog: QDialog, theme: str):
-    """ダイアログにテーマを適用（白フラッシュ対策）"""
     try:
         dialog.setStyleSheet(get_stylesheet(theme, "main"))
         dialog.setAutoFillBackground(True)
@@ -221,7 +212,6 @@ def apply_dialog_theme(dialog: QDialog, theme: str):
         pass
 
 def apply_app_theme(app: QApplication, theme: str):
-    """アプリ全体にテーマを適用（初回の白フラッシュ対策）"""
     if app is None:
         return
     try:
@@ -241,7 +231,6 @@ def apply_app_theme(app: QApplication, theme: str):
         pass
 
 def apply_titlebar_theme(widget: QWidget, theme: str):
-    """Windowsのタイトルバーをテーマに合わせる"""
     if os.name != "nt" or widget is None:
         return
     try:
@@ -264,7 +253,6 @@ def apply_titlebar_theme(widget: QWidget, theme: str):
         pass
 
 def warm_theme_cache(theme: str):
-    """テーマのCSS/JSONを先読みしてキャッシュ（初回の白フラッシュ対策）"""
     try:
         get_stylesheet(theme, "main")
         get_stylesheet(theme, "settings")
@@ -273,7 +261,6 @@ def warm_theme_cache(theme: str):
         pass
 
 def scan_theme_options():
-    """themeフォルダから利用可能なテーマ一覧を収集"""
     global _THEME_OPTIONS_CACHE
     if _THEME_OPTIONS_CACHE is not None:
         return list(_THEME_OPTIONS_CACHE)
@@ -288,46 +275,102 @@ def scan_theme_options():
                 theme_name = name
             if theme_name not in themes:
                 themes.append(theme_name)
-    # フォールバック
     if not themes:
         themes = ["dark", "light"]
     _THEME_OPTIONS_CACHE = list(themes)
     return list(themes)
 
 def lerp_color(start_color, end_color, progress):
-    """16進数カラーコードを線形補間"""
     try:
-        # 16進数から RGB に解析
         start_rgb = tuple(int(start_color[i:i+2], 16) for i in (1, 3, 5))
         end_rgb = tuple(int(end_color[i:i+2], 16) for i in (1, 3, 5))
         
-        # 補間
         interpolated = tuple(int(s + (e - s) * progress) for s, e in zip(start_rgb, end_rgb))
         
-        # RGB から16進数文字列に変換
         return '#{:02x}{:02x}{:02x}'.format(*interpolated)
     except Exception:
         return end_color
 
 def get_config_path() -> Path:
     if is_packaged_executable():
-        # パッケージ化されている場合はOSごとの標準的なユーザー領域に保存
-        if os.name == "nt":
-            base_dir = Path(os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming"))
-        elif sys.platform == "darwin":
-            base_dir = Path.home() / "Library" / "Application Support"
-        else:
-            # Linux (XDG)
-            base_dir = Path(os.getenv("XDG_CONFIG_HOME") or (Path.home() / ".config"))
-        
+        base_dir = Path(os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming"))
         cfg_dir = base_dir / CONFIG_DIR_NAME
         cfg_dir.mkdir(parents=True, exist_ok=True)
         return cfg_dir / "config.json"
     else:
-        # Pythonスクリプトとして実行されている場合
         app_dir = Path(__file__).parent
     
     return app_dir / "config.json"
+
+
+
+def _safe_download_file(url: str, dest_path: Path, timeout: int = 30):
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    context = ssl.create_default_context()
+    with urllib.request.urlopen(req, context=context, timeout=timeout) as resp:
+        with open(dest_path, "wb") as f:
+            shutil.copyfileobj(resp, f)
+
+
+def _extract_exe_from_zip(zip_path: Path, exe_name: str, dest_dir: Path):
+    with zipfile.ZipFile(zip_path) as zf:
+        member = None
+        for name in zf.namelist():
+            if Path(name).name.lower() == exe_name.lower():
+                member = name
+                break
+        if not member:
+            raise FileNotFoundError(f"{exe_name} not found in archive")
+        extracted = Path(zf.extract(member, dest_dir))
+    final_path = dest_dir / exe_name
+    if extracted.resolve() != final_path.resolve():
+        if final_path.exists():
+            final_path.unlink()
+        shutil.move(str(extracted), str(final_path))
+
+
+def ensure_windows_binaries(status_cb=None):
+    if os.name != "nt" or not is_packaged_executable():
+        return True, "skipped"
+    app_dir = get_runtime_app_dir()
+    missing = []
+    yt_path = app_dir / "yt-dlp.exe"
+    ffmpeg_path = app_dir / "ffmpeg.exe"
+    ffprobe_path = app_dir / "ffprobe.exe"
+    if not yt_path.exists():
+        missing.append("yt-dlp.exe")
+    if not ffmpeg_path.exists():
+        missing.append("ffmpeg.exe")
+    if not ffprobe_path.exists():
+        missing.append("ffprobe.exe")
+    if not missing:
+        return True, "already_present"
+
+    try:
+        if status_cb:
+            status_cb("Checking required binaries...")
+        if "yt-dlp.exe" in missing:
+            if status_cb:
+                status_cb("Downloading yt-dlp...")
+            _safe_download_file(YT_DLP_WIN_URL, yt_path)
+        if "ffmpeg.exe" in missing:
+            if status_cb:
+                status_cb("Downloading ffmpeg...")
+            zip_path = app_dir / "ffmpeg.zip"
+            _safe_download_file(FFMPEG_WIN_ZIP_URL, zip_path)
+            _extract_exe_from_zip(zip_path, "ffmpeg.exe", app_dir)
+            zip_path.unlink(missing_ok=True)
+        if "ffprobe.exe" in missing:
+            if status_cb:
+                status_cb("Downloading ffprobe...")
+            zip_path = app_dir / "ffprobe.zip"
+            _safe_download_file(FFPROBE_WIN_ZIP_URL, zip_path)
+            _extract_exe_from_zip(zip_path, "ffprobe.exe", app_dir)
+            zip_path.unlink(missing_ok=True)
+        return True, "downloaded"
+    except Exception as e:
+        return False, str(e)
 
 def resolve_yt_dlp_command():
     app_dir = get_runtime_app_dir()
@@ -335,6 +378,9 @@ def resolve_yt_dlp_command():
     for candidate in candidates:
         if candidate.exists() and candidate.is_file():
             return [str(candidate)]
+    # Python版 (py実行時) はモジュール起動を優先
+    if importlib.util.find_spec("yt_dlp") is not None:
+        return [sys.executable, "-m", "yt_dlp"]
     if shutil.which("yt-dlp"):
         return ["yt-dlp"]
     return None
@@ -956,22 +1002,12 @@ class YtDlpUpdateThread(QThread):
 
                 exe_path = Path(yt_cmd[0])
 
-                # OSごとのダウンロードURL
-                if os.name == "nt":
-                    url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-                elif sys.platform == "darwin":
-                    url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
-                else:
-                    url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+                url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 
                 tmp = exe_path.with_suffix(".new")
 
                 import urllib.request
                 urllib.request.urlretrieve(url, tmp)
-
-                # Linux / macOS 実行権限
-                if os.name != "nt":
-                    os.chmod(tmp, 0o755)
 
                 exe_path.unlink(missing_ok=True)
                 tmp.rename(exe_path)
@@ -1073,6 +1109,18 @@ class YtDlpCheckThread(QThread):
 
         except Exception as e:
             self.finished.emit(False, "failed", "不明", "不明", f"yt-dlp 更新エラー: {e}")
+
+
+class BinariesEnsureThread(QThread):
+    status = Signal(str)
+    done = Signal(bool, str)
+
+    def run(self):
+        try:
+            ok, msg = ensure_windows_binaries(self.status.emit)
+        except Exception as e:
+            ok, msg = False, str(e)
+        self.done.emit(ok, msg)
 
 class AppUpdateThread(QThread):
     finished = Signal(bool, str, str, str, str, str, str, str)
