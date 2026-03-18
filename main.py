@@ -41,6 +41,15 @@ def get_runtime_app_dir() -> Path:
         return Path(sys.executable).parent
     return Path(__file__).parent
 
+def _ensure_executable(path: Path):
+    if os.name != "nt" and path.exists() and not os.access(path, os.X_OK):
+        try:
+            import stat
+            st = os.stat(path)
+            os.chmod(path, st.st_mode | stat.S_IEXEC)
+        except Exception:
+            pass
+
 def resolve_app_icon_path():
     app_dir = get_runtime_app_dir()
     candidates = [
@@ -485,8 +494,9 @@ def version_key(version: str):
     text = (version or "").strip().lower()
     if text.startswith("v"):
         text = text[1:]
+    # 全すべての数字セグメントを取得し、数値のリストにする
     nums = [int(x) for x in re.findall(r"\d+", text)]
-    nums = (nums + [0, 0, 0])[:3]
+    
     pre_rank = 0
     pre_num = 0
     if "alpha" in text:
@@ -498,9 +508,13 @@ def version_key(version: str):
     match = re.search(r"(alpha|beta|rc)\s*(\d+)?", text)
     if match and match.group(2):
         pre_num = int(match.group(2))
-    return (*nums, pre_rank, pre_num)
+    
+    # 比較のためにタプルを返す。セグメント数は可変に対応。
+    return (nums, pre_rank, pre_num)
 
 def is_newer_version(latest: str, current: str) -> bool:
+    if not latest or not current:
+        return False
     return version_key(latest) > version_key(current)
 
 def extract_latest_changelog_entry(changelog_text: str) -> str:
@@ -997,26 +1011,38 @@ class YtDlpUpdateThread(QThread):
         try:
             before_version = self._get_version(yt_cmd)
 
-            # パッケージ版（PyInstaller等）
-            if getattr(sys, "frozen", False):
-
+            # パッケージ版（PyInstaller/Nuitka等）
+            if getattr(sys, "frozen", False) or "__compiled__" in globals():
                 exe_path = Path(yt_cmd[0])
-
-                url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+                
+                # OSに応じたダウンロードURLの選択
+                if sys.platform == "win32":
+                    url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+                elif sys.platform == "darwin":
+                    url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+                else:
+                    url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
 
                 tmp = exe_path.with_suffix(".new")
-
                 import urllib.request
-                urllib.request.urlretrieve(url, tmp)
+                
+                # SSL証明書のエラー回避用コンテキスト
+                context = ssl._create_unverified_context() if hasattr(ssl, "_create_unverified_context") else None
+                
+                with urllib.request.urlopen(url, context=context) as response, open(tmp, 'wb') as out_file:
+                    out_file.write(response.read())
 
                 exe_path.unlink(missing_ok=True)
                 tmp.rename(exe_path)
+                
+                # Unix系OSでは実行権限を付与
+                if os.name != "nt":
+                    _ensure_executable(exe_path)
 
-                output = "GitHubからyt-dlpを更新しました"
+                output = "GitHubからバイナリを直接更新しました"
                 process_returncode = 0
-
             else:
-                # Python版
+                # Python版（ソース実行）
                 process = subprocess.Popen(
                     yt_cmd + ["-U"],
                     stdout=subprocess.PIPE,
@@ -1894,6 +1920,7 @@ class Main(QWidget):
 
     def apply_language_texts(self):
         self.btn_theme.setText(self.theme_button_text(self.cfg.get("theme", "dark")))
+        self.btn_mini.setText("M" if self.is_mini_mode else "Mini")
         self.lbl_url.setText(self.t("main.video_url", "Video URL"))
         self.lbl_time.setText(self.t("main.time_range", "Time Range"))
         self.lbl_folder.setText(self.t("main.output_folder", "Output Folder"))
@@ -1902,9 +1929,9 @@ class Main(QWidget):
         self.btn_paste.setText(self.t("main.paste", "Paste"))
         self.btn_browse.setText(self.t("main.browse", "Browse"))
         self.btn_dl.setText(self.t("main.start_download", "Start Download"))
+        self.btn_settings.setText(self.t("main.settings", "Settings"))
         self.btn_update_ytdlp.setText(self.t("main.update_ytdlp", "Update yt-dlp"))
         self.btn_check_app_update.setText(self.t("main.check_app_update", "Check App Update"))
-        self.btn_settings.setText(self.t("main.settings", "Settings"))
         self.media_quality_label.setText(self.t("main.video_quality", "Video Quality"))
         self.set_ytdlp_status(self.ytdlp_version, self.ytdlp_state)
         self.set_app_status(self.app_state, self.app_current_version, self.app_latest_version)
@@ -1961,6 +1988,7 @@ class Main(QWidget):
         self.setMinimumSize(720, 600)
         self.cfg = load_config()
         self._apply_startup_palette()
+        self.is_mini_mode = False
         self.is_animating = False  # アニメーション中かどうかを追跡
         self.download_thread = None
         self.updater = None
@@ -1974,6 +2002,14 @@ class Main(QWidget):
         top_bar = QHBoxLayout()
         top_bar.setContentsMargins(20, 10, 20, 10)
         top_bar.addStretch()
+        
+        self.btn_mini = QPushButton("Mini")
+        self.btn_mini.setObjectName("SecondaryBtn")
+        self.btn_mini.setFixedWidth(80)
+        self.btn_mini.setMinimumHeight(35)
+        self.btn_mini.clicked.connect(self.toggle_mini_mode)
+        top_bar.addWidget(self.btn_mini)
+
         self.btn_theme = QPushButton(self.theme_button_text(self.cfg.get("theme", "dark")))
         self.btn_theme.setObjectName("ThemeBtn")
         self.btn_theme.setFixedWidth(150)
@@ -2104,12 +2140,12 @@ class Main(QWidget):
         self.btn_update_ytdlp.setMinimumHeight(46)
         self.btn_update_ytdlp.clicked.connect(lambda: self._safe_call("update_ytdlp", self.update_ytdlp))
         self.btn_update_ytdlp.setVisible(False)
+        actions_layout.addWidget(self.btn_update_ytdlp)
 
         self.btn_check_app_update = QPushButton("アプリ更新を確認")
         self.btn_check_app_update.setObjectName("SecondaryBtn")
         self.btn_check_app_update.setMinimumHeight(46)
         self.btn_check_app_update.clicked.connect(lambda: self._safe_call("check_app_update_manually", self.check_app_update_manually))
-        self.btn_check_app_update.setVisible(False)
         actions_layout.addWidget(self.btn_check_app_update)
 
         card_layout.addLayout(actions_layout)
@@ -2458,18 +2494,20 @@ class Main(QWidget):
         self.cfg["path"] = path
         save_config(self.cfg)
 
-    def update_ytdlp(self):
+    def update_ytdlp(self, auto=False):
         if self.updater is not None and self.updater.isRunning():
             return
 
         if resolve_yt_dlp_command() is None:
-            self._show_warning("エラー", "yt-dlp が見つかりません。")
+            if not auto:
+                self._show_warning("エラー", "yt-dlp が見つかりません。")
             return
 
-        self.btn_update_ytdlp.setEnabled(False)
-        self.btn_update_ytdlp.setText("更新中...")
         self.updater = YtDlpUpdateThread()
-        self.updater.finished.connect(self.on_ytdlp_updated)
+        # auto引数を引き継ぐためにlambdaを使用
+        self.updater.finished.connect(
+            lambda ok, state, before, after, output: self.on_ytdlp_updated(ok, state, before, after, output, auto=auto)
+        )
         self.updater.start()
 
     def check_ytdlp_on_startup(self):
@@ -2561,8 +2599,9 @@ class Main(QWidget):
             return
 
         version = (version or "").strip()
-        self.ytdlp_version = version or self.t("common.unknown", "Unknown")
         self.ytdlp_state = state or "pending"
+        
+        # 状態に応じて表示テキストを決定
         if state == "pending":
             self.ytdlp_status_label.setText(self.t("status.ytdlp_pending", "yt-dlp - Pending check"))
         elif state == "checking":
@@ -2570,20 +2609,21 @@ class Main(QWidget):
         elif state == "not_found":
             self.ytdlp_status_label.setText(self.t("status.ytdlp_not_found", "yt-dlp - Not found"))
         elif state == "update_available":
+            # version は最新バージョンを指す
             current = self.ytdlp_version or self.t("common.unknown", "Unknown")
             self.ytdlp_status_label.setText(self.t("status.ytdlp_update_available", "yt-dlp - {current}->{latest} Update available").format(current=current, latest=version))
         elif state == "up_to_date":
-            if not version:
-                version = self.t("common.unknown", "Unknown")
-            self.ytdlp_status_label.setText(self.t("status.ytdlp_up_to_date", "yt-dlp - {version} Up to date").format(version=version))
+            # 更新がない場合は渡されたバージョンを現在のバージョンとして保持
+            self.ytdlp_version = version or self.t("common.unknown", "Unknown")
+            self.ytdlp_status_label.setText(self.t("status.ytdlp_up_to_date", "yt-dlp - {version} Up to date").format(version=self.ytdlp_version))
         elif state == "updated":
-            if not version:
-                version = self.t("common.unknown", "Unknown")
-            self.ytdlp_status_label.setText(self.t("status.ytdlp_updated", "yt-dlp - {version} Updated").format(version=version))
+            # 更新成功時は渡されたバージョン（新バージョン）に更新
+            self.ytdlp_version = version or self.t("common.unknown", "Unknown")
+            self.ytdlp_status_label.setText(self.t("status.ytdlp_updated", "yt-dlp - {version} Updated").format(version=self.ytdlp_version))
         else:
-            if not version:
-                version = self.t("common.unknown", "Unknown")
-            self.ytdlp_status_label.setText(self.t("status.ytdlp_failed", "yt-dlp - {version} Check failed").format(version=version))
+            # 失敗時は渡されたバージョンがあれば表示、なければ既存のものを表示
+            ver = version or self.ytdlp_version or self.t("common.unknown", "Unknown")
+            self.ytdlp_status_label.setText(self.t("status.ytdlp_failed", "yt-dlp - {version} Check failed").format(version=ver))
 
         self.ytdlp_status_label.setVisible(True)
     def on_startup_ytdlp_updated(self, ok: bool, state: str, before_version: str, after_version: str, output: str):
@@ -2609,15 +2649,22 @@ class Main(QWidget):
         if state == "update_available":
             self.ytdlp_version = current_version or self.t("common.unknown", "Unknown")
             self.set_ytdlp_status(latest_version or current_version, "update_available")
+            # 更新が見つかった場合は自動で更新を開始
+            QTimer.singleShot(500, lambda: self.update_ytdlp(auto=True))
         elif state == "up_to_date":
             self.set_ytdlp_status(current_version or latest_version, "up_to_date")
 
-    def on_ytdlp_updated(self, ok: bool, state: str, before_version: str, after_version: str, output: str):
+    def on_ytdlp_updated(self, ok: bool, state: str, before_version: str, after_version: str, output: str, auto=False):
         self.btn_update_ytdlp.setEnabled(True)
         self.btn_update_ytdlp.setText("yt-dlp を更新")
         body = tail_text(output)
         status_version = self._pick_known_version(after_version, before_version)
         self.set_ytdlp_status(status_version, state if ok else "failed")
+        
+        # 自動更新（auto=True）かつ成功（ok=True）の場合は通知を出さない
+        if auto and ok:
+            return
+
         if ok and state == "up_to_date":
             message = "yt-dlp は最新です。"
         elif ok:
@@ -2628,6 +2675,7 @@ class Main(QWidget):
         message += f"\n\n更新前バージョン: {before_version}\n更新後バージョン: {after_version}"
         if body:
             message = f"{message}\n\n{body}"
+        
         if ok:
             self._show_info("yt-dlp 更新", message)
         else:
@@ -3115,6 +3163,70 @@ class Main(QWidget):
             }}
         """
         self.setStyleSheet(stylesheet)
+
+    def toggle_mini_mode(self):
+        self.is_mini_mode = not self.is_mini_mode
+        self.btn_mini.setText("M" if self.is_mini_mode else "Mini")
+        
+        is_normal = not self.is_mini_mode
+        
+        try:
+            # --- 1. ウィンドウフラグの設定 (最前面表示の切替) ---
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, self.is_mini_mode)
+            
+            # --- 2. サイズ制約の更新 ---
+            if self.is_mini_mode:
+                # ミニモード: 小さく固定
+                self.setMinimumSize(420, 280)
+                self.setMaximumSize(550, 400)
+                self.resize(450, 320)
+                self.card.setFixedWidth(410)
+                self.card.layout().setSpacing(10)
+                self.card.layout().setContentsMargins(20, 20, 20, 15)
+            else:
+                # 通常モード: 制約を広げる
+                self.setMinimumSize(720, 600)
+                self.setMaximumSize(16777215, 16777215) 
+                self.resize(920, 700)
+                self.card.setFixedWidth(520)
+                self.card.layout().setSpacing(5)
+                self.card.layout().setContentsMargins(28, 26, 28, 24)
+
+            # --- 3. 要素の表示/非表示を制御 ---
+            title = self.card.findChild(QLabel, "Title")
+            if title: title.setVisible(is_normal)
+            
+            self.lbl_url.setVisible(is_normal)
+            self.lbl_time.setVisible(is_normal)
+            self.time_range.setVisible(is_normal)
+            self.lbl_folder.setVisible(is_normal)
+            self.path_display.setVisible(is_normal)
+            self.btn_browse.setVisible(is_normal)
+            self.media_quality_label.setVisible(is_normal)
+            
+            # 画質コンボの状態（MP4かそれ以外か）
+            is_mp4 = self.cfg.get("format", "mp4") == "mp4"
+            self.quality_combo.setVisible(is_normal and is_mp4)
+            self.fps_combo.setVisible(is_normal and is_mp4)
+            self.audio_quality_combo.setVisible(is_normal and not is_mp4)
+            
+            self.btn_settings.setVisible(is_normal)
+            self.btn_theme.setVisible(is_normal)
+            self.app_status_label.setVisible(is_normal)
+            
+            # 常に表示するメイン要素
+            self.url.setVisible(True)
+            self.btn_paste.setVisible(True)
+            self.btn_dl.setVisible(True)
+            self.ytdlp_status_label.setVisible(True)
+            
+            # --- 4. ウィンドウの再表示とリサイズ強制 ---
+            self.show()
+            # フラグ変更後のサイズ適用を確実にするため、少し遅らせて実行
+            QTimer.singleShot(50, lambda: self.resize(450, 320) if self.is_mini_mode else self.resize(920, 700))
+                
+        except Exception as e:
+            print(f"Mini mode toggle error: {e}")
 
     def finalize_theme(self, new_theme, keep_animating: bool = False):
         """テーマを確定"""
