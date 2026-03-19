@@ -1023,18 +1023,36 @@ class YtDlpUpdateThread(QThread):
                 else:
                     url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
 
-                tmp = exe_path.with_suffix(".new")
                 import urllib.request
+                import tempfile
                 
-                # SSL証明書のエラー回避用コンテキスト
-                context = ssl._create_unverified_context() if hasattr(ssl, "_create_unverified_context") else None
+                # 一時ファイルへダウンロード
+                fd, tmp_path_str = tempfile.mkstemp(suffix=".tmp")
+                os.close(fd)
+                tmp_path = Path(tmp_path_str)
                 
-                with urllib.request.urlopen(url, context=context) as response, open(tmp, 'wb') as out_file:
-                    out_file.write(response.read())
+                try:
+                    context = ssl._create_unverified_context() if hasattr(ssl, "_create_unverified_context") else None
+                    with urllib.request.urlopen(url, context=context) as response, open(tmp_path, 'wb') as out_file:
+                        out_file.write(response.read())
 
-                exe_path.unlink(missing_ok=True)
-                tmp.rename(exe_path)
-                
+                    # ダウンロード成功後、元のファイルを置き換え
+                    try:
+                        if exe_path.exists():
+                            exe_path.unlink()
+                        shutil.move(str(tmp_path), str(exe_path))
+                    except PermissionError:
+                        raise PermissionError(f"アプリフォルダへの書き込み権限がありません。\n管理者権限で実行するか、アプリをデスクトップなどの書き込み可能な場所に移動してください。\n(パス: {exe_path.parent})")
+                    except Exception as e:
+                        raise Exception(f"ファイル置換に失敗しました: {e}")
+
+                finally:
+                    if tmp_path.exists():
+                        try:
+                            tmp_path.unlink()
+                        except Exception:
+                            pass
+
                 # Unix系OSでは実行権限を付与
                 if os.name != "nt":
                     _ensure_executable(exe_path)
@@ -1442,10 +1460,10 @@ class Settings(QDialog):
         layout.addSpacing(4)
         layout.addWidget(QLabel(i18n(self.cfg, "settings.output_format", "出力形式")))
         self.format_combo = QComboBox()
-        self.format_combo.addItem("Video (mp4)", "mp4")
-        self.format_combo.addItem("Audio (mp3)", "mp3")
-        self.format_combo.addItem("Audio (wav)", "wav")
-        self.format_combo.addItem("Audio (m4a)", "m4a")
+        self.format_combo.addItem("mp4", "mp4")
+        self.format_combo.addItem("mp3", "mp3")
+        self.format_combo.addItem("wav", "wav")
+        self.format_combo.addItem("m4a", "m4a")
         self.format_combo.setMinimumHeight(40)
         fmt_idx = self.format_combo.findData(str(self.cfg.get("format", "mp4")))
         self.format_combo.setCurrentIndex(fmt_idx if fmt_idx >= 0 else 0)
@@ -1931,7 +1949,6 @@ class Main(QWidget):
         self.btn_dl.setText(self.t("main.start_download", "Start Download"))
         self.btn_settings.setText(self.t("main.settings", "Settings"))
         self.btn_update_ytdlp.setText(self.t("main.update_ytdlp", "Update yt-dlp"))
-        self.btn_check_app_update.setText(self.t("main.check_app_update", "Check App Update"))
         self.media_quality_label.setText(self.t("main.video_quality", "Video Quality"))
         self.set_ytdlp_status(self.ytdlp_version, self.ytdlp_state)
         self.set_app_status(self.app_state, self.app_current_version, self.app_latest_version)
@@ -2142,12 +2159,6 @@ class Main(QWidget):
         self.btn_update_ytdlp.setVisible(False)
         actions_layout.addWidget(self.btn_update_ytdlp)
 
-        self.btn_check_app_update = QPushButton("アプリ更新を確認")
-        self.btn_check_app_update.setObjectName("SecondaryBtn")
-        self.btn_check_app_update.setMinimumHeight(46)
-        self.btn_check_app_update.clicked.connect(lambda: self._safe_call("check_app_update_manually", self.check_app_update_manually))
-        actions_layout.addWidget(self.btn_check_app_update)
-
         card_layout.addLayout(actions_layout)
 
         self.ytdlp_status_label = QLabel("yt-dlp - 確認待ち")
@@ -2159,6 +2170,7 @@ class Main(QWidget):
         self.app_status_label.setObjectName("AppStatusLabel")
         self.app_status_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         card_layout.addWidget(self.app_status_label)
+
         self.ytdlp_state = "pending"
         self.ytdlp_version = self.t("common.unknown", "Unknown")
         self.app_state = "pending"
@@ -2195,7 +2207,6 @@ class Main(QWidget):
         main_layout.addLayout(center_layout)
         main_layout.addStretch()
 
-        self.setAcceptDrops(True)
         self.apply_language_texts()
         self.apply_style()
         QTimer.singleShot(0, lambda: apply_titlebar_theme(self, self.cfg.get("theme", "dark")))
@@ -2538,8 +2549,6 @@ class Main(QWidget):
                 self._show_info("アプリ更新", "GitHubリポジトリURLが未設定です。\nconfig.json の app_update_source_url にURLを設定してください。")
             return
 
-        self.btn_check_app_update.setEnabled(False)
-        self.btn_check_app_update.setText("確認中...")
         self.set_app_status("checking", VERSION, VERSION)
         self.app_updater = AppUpdateThread(source_url)
         self.app_updater.finished.connect(
@@ -2549,8 +2558,6 @@ class Main(QWidget):
         self.app_updater.start()
 
     def on_app_update_finished(self, ok: bool, state: str, current_version: str, latest_version: str, release_page_url: str, notes: str, published_at: str, installer_url: str, interactive: bool, suppress_latest_popup: bool):
-        self.btn_check_app_update.setEnabled(True)
-        self.btn_check_app_update.setText("アプリ更新を確認")
         version_display = latest_version or current_version
 
         if not ok:
@@ -2680,6 +2687,71 @@ class Main(QWidget):
             self._show_info("yt-dlp 更新", message)
         else:
             self._show_warning("yt-dlp 更新", message)
+
+    def check_app_update_on_startup(self):
+        self.start_app_update_check(interactive=True, suppress_latest_popup=True)
+
+    def start_app_update_check(self, interactive: bool, suppress_latest_popup: bool = False):
+        if self.app_updater is not None and self.app_updater.isRunning():
+            return
+
+        source_url = str(self.cfg.get("app_update_source_url", "") or APP_GITHUB_REPO_URL).strip()
+        if not source_url:
+            self.set_app_status("source_not_set", VERSION, VERSION)
+            if interactive:
+                self._show_info("アプリ更新", "GitHubリポジトリURLが未設定です。\nconfig.json の app_update_source_url にURLを設定してください。")
+            return
+
+        self.set_app_status("checking", VERSION, VERSION)
+        self.app_updater = AppUpdateThread(source_url)
+        self.app_updater.finished.connect(
+            lambda ok, state, current, latest, page_url, notes, published_at, installer_url:
+            self.on_app_update_finished(ok, state, current, latest, page_url, notes, published_at, installer_url, interactive, suppress_latest_popup)
+        )
+        self.app_updater.start()
+
+    def on_app_update_finished(self, ok: bool, state: str, current_version: str, latest_version: str, release_page_url: str, notes: str, published_at: str, installer_url: str, interactive: bool, suppress_latest_popup: bool):
+        version_display = latest_version or current_version
+
+        if not ok:
+            self.set_app_status("failed", version_display, version_display)
+            if interactive:
+                reason = (notes or "").strip() or "不明なエラー"
+                self._show_warning("更新", f"更新確認に失敗しました。\n\n理由: {reason}")
+            return
+
+        if state == "update_available":
+            self.set_app_status("update_available", current_version, latest_version)
+            notes_text = notes or "更新内容は取得できませんでした。"
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setWindowTitle("更新")
+            msg.setMinimumWidth(460)
+            msg.setText(f"更新通知\nアプリ更新があります。\n現在: {current_version}\n最新: {latest_version}")
+            msg.setInformativeText(f"更新内容:\n{notes_text}")
+            self._apply_messagebox_theme(msg)
+            
+            open_btn = None
+            if release_page_url:
+                open_btn = msg.addButton("ページを開く", QMessageBox.ButtonRole.AcceptRole)
+            
+            msg.addButton("閉じる", QMessageBox.ButtonRole.RejectRole)
+            msg.exec()
+            
+            clicked = msg.clickedButton()
+            if open_btn is not None and clicked == open_btn:
+                QDesktopServices.openUrl(QUrl(release_page_url))
+            return
+
+        self.set_app_status("up_to_date", current_version, current_version)
+        if interactive and not suppress_latest_popup:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setWindowTitle("更新")
+            msg.setMinimumWidth(420)
+            msg.setText(f"更新通知\n{current_version} は最新です。")
+            self._apply_messagebox_theme(msg)
+            msg.exec()
 
     def start(self):
         # Toggle: if a download is running, cancel it
