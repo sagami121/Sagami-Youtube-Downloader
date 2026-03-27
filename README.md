@@ -3,9 +3,17 @@
   <br>
 </p>
 
-[![Release](https://img.shields.io/github/release/sagami121/Sagami-Youtube-Downloader.svg?style=for-the-badge&logo=github)](https://github.com/sagami121/Sagami-Youtube-Downloader/releases/latest)
-[![Downloads (Latest)](https://img.shields.io/github/downloads/sagami121/Sagami-Youtube-Downloader/latest/total.svg?style=for-the-badge&logo=github)](https://github.com/sagami121/Sagami-Youtube-Downloader/releases/latest)
-[![Downloads (Total)](https://img.shields.io/github/downloads/sagami121/Sagami-Youtube-Downloader/total.svg?style=for-the-badge&logo=github)](https://github.com/sagami121/Sagami-Youtube-Downloader/releases)
+<p align="center">
+  <a href="https://github.com/sagami121/Sagami-Youtube-Downloader/releases/latest">
+    <img src="https://img.shields.io/github/release/sagami121/Sagami-Youtube-Downloader.svg?style=for-the-badge&logo=github" alt="Release" />
+  </a>
+  <a href="https://github.com/sagami121/Sagami-Youtube-Downloader/releases/latest">
+    <img src="https://img.shields.io/github/downloads/sagami121/Sagami-Youtube-Downloader/latest/total.svg?style=for-the-badge&logo=github" alt="Downloads (Latest)" />
+  </a>
+  <a href="https://github.com/sagami121/Sagami-Youtube-Downloader/releases">
+    <img src="https://img.shields.io/github/downloads/sagami121/Sagami-Youtube-Downloader/total.svg?style=for-the-badge&logo=github" alt="Downloads (Total)" />
+  </a>
+</p>
 
 ## 使い方
 
