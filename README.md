@@ -4,16 +4,17 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/sagami121/Sagami-Youtube-Downloader/releases/latest">
+  <a href="https://github.com/sagami121/Sagami-Youtube-Downloader/releases/latest" style="text-decoration: none;">
     <img src="https://img.shields.io/github/release/sagami121/Sagami-Youtube-Downloader.svg?style=for-the-badge&logo=github" alt="Release" />
   </a>
-  <a href="https://github.com/sagami121/Sagami-Youtube-Downloader/releases/latest">
+  <a href="https://github.com/sagami121/Sagami-Youtube-Downloader/releases/latest" style="text-decoration: none;">
     <img src="https://img.shields.io/github/downloads/sagami121/Sagami-Youtube-Downloader/latest/total.svg?style=for-the-badge&logo=github" alt="Downloads (Latest)" />
   </a>
-  <a href="https://github.com/sagami121/Sagami-Youtube-Downloader/releases">
+  <a href="https://github.com/sagami121/Sagami-Youtube-Downloader/releases" style="text-decoration: none;">
     <img src="https://img.shields.io/github/downloads/sagami121/Sagami-Youtube-Downloader/total.svg?style=for-the-badge&logo=github" alt="Downloads (Total)" />
   </a>
 </p>
+
 
 ## 使い方
 
