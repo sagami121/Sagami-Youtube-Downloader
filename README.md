@@ -1,5 +1,9 @@
 # Sagami-YouTube-Downloader
 
+[![Release](https://img.shields.io/github/release/sagami121/Sagami-Youtube-Downloader.svg?style=for-the-badge&logo=github)](https://github.com/sagami121/Sagami-Youtube-Downloader/releases/latest)
+[![Downloads (Latest)](https://img.shields.io/github/downloads/sagami121/Sagami-Youtube-Downloader/latest/total.svg?style=for-the-badge&logo=github)](https://github.com/sagami121/Sagami-Youtube-Downloader/releases/latest)
+[![Downloads (Total)](https://img.shields.io/github/downloads/sagami121/Sagami-Youtube-Downloader/total.svg?style=for-the-badge&logo=github)](https://github.com/sagami121/Sagami-Youtube-Downloader/releases)
+
 ## 使い方
 
 1. `Sagami Youtube Downloader.exe` を実行

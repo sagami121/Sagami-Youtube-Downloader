@@ -14,9 +14,9 @@ import urllib.parse
 import ssl
 from datetime import datetime
 from pathlib import Path
-from PySide6.QtWidgets import *
-from PySide6.QtCore import Qt, QThread, Signal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler, QEvent
-from PySide6.QtGui import QIcon, QDesktopServices, QColor, QPalette
+from PyQt5.QtWidgets import *
+from PyQt5.QtCore import Qt, QThread, pyqtSignal as Signal, QRect, QPropertyAnimation, QEasingCurve, QTimer, QUrl, qInstallMessageHandler, QEvent
+from PyQt5.QtGui import QIcon, QDesktopServices, QColor, QPalette
 
 VERSION = "1.6.3"
 CONFIG_DIR_NAME = "SagamiYoutubeDownloader"
@@ -24,8 +24,9 @@ APP_GITHUB_REPO_URL = "https://github.com/sagami121/Sagami-Youtube-Downloader"
 APP_DISPLAY_NAME = "Sagami youtube Downloader"
 
 YT_DLP_WIN_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-FFMPEG_WIN_ZIP_URL = "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-win-64.zip"
-FFPROBE_WIN_ZIP_URL = "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-win-64.zip"
+YT_DLP_WIN7_X86_URL = "https://github.com/nicolaasjan/yt-dlp/releases/download/2026.03.18.053738/yt-dlp_x86_win7.exe"
+FFMPEG_WIN64_ZIP_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+FFMPEG_WIN32_ZIP_URL = "https://github.com/defisym/FFmpeg-Builds-Win32/releases/latest/download/ffmpeg-master-latest-win32-gpl.zip"
 
 def is_packaged_executable() -> bool:
     if getattr(sys, "frozen", False):
@@ -35,6 +36,22 @@ def is_packaged_executable() -> bool:
     if hasattr(sys, "_MEIPASS"):
         return True
     return False
+
+def is_legacy_windows() -> bool:
+    if os.name != "nt":
+        return False
+    try:
+        v = sys.getwindowsversion()
+        return (v.major, v.minor) <= (6, 3)
+    except Exception:
+        return False
+
+def is_64bit_process() -> bool:
+    return sys.maxsize > 2**32
+
+def resolve_ffmpeg_zip_url() -> str:
+    # Use process architecture for compatibility with the packaged build
+    return FFMPEG_WIN64_ZIP_URL if is_64bit_process() else FFMPEG_WIN32_ZIP_URL
 
 def get_runtime_app_dir() -> Path:
     if is_packaged_executable():
@@ -202,8 +219,8 @@ def apply_dialog_theme(dialog: QDialog, theme: str):
     try:
         dialog.setStyleSheet(get_stylesheet(theme, "main"))
         dialog.setAutoFillBackground(True)
-        dialog.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        dialog.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        dialog.setAttribute(Qt.WA_StyledBackground, True)
+        dialog.setAttribute(Qt.WA_TranslucentBackground, False)
         colors, _props = load_theme_profile(theme)
         bg = colors.get("bg")
         if not bg:
@@ -211,9 +228,9 @@ def apply_dialog_theme(dialog: QDialog, theme: str):
         base = colors.get("input_bg") or colors.get("card") or bg
         text = colors.get("input_text") or ("#ffffff" if "dark" in theme else "#000000")
         pal = dialog.palette()
-        pal.setColor(QPalette.ColorRole.Window, QColor(bg))
-        pal.setColor(QPalette.ColorRole.Base, QColor(base))
-        pal.setColor(QPalette.ColorRole.Text, QColor(text))
+        pal.setColor(QPalette.Window, QColor(bg))
+        pal.setColor(QPalette.Base, QColor(base))
+        pal.setColor(QPalette.Text, QColor(text))
         dialog.setPalette(pal)
         apply_titlebar_theme(dialog, theme)
         QTimer.singleShot(0, lambda: apply_titlebar_theme(dialog, theme))
@@ -232,9 +249,9 @@ def apply_app_theme(app: QApplication, theme: str):
         base = colors.get("input_bg") or colors.get("card") or bg
         text = colors.get("input_text") or ("#ffffff" if "dark" in theme else "#000000")
         pal = app.palette()
-        pal.setColor(QPalette.ColorRole.Window, QColor(bg))
-        pal.setColor(QPalette.ColorRole.Base, QColor(base))
-        pal.setColor(QPalette.ColorRole.Text, QColor(text))
+        pal.setColor(QPalette.Window, QColor(bg))
+        pal.setColor(QPalette.Base, QColor(base))
+        pal.setColor(QPalette.Text, QColor(text))
         app.setPalette(pal)
     except Exception:
         pass
@@ -362,19 +379,14 @@ def ensure_windows_binaries(status_cb=None):
         if "yt-dlp.exe" in missing:
             if status_cb:
                 status_cb("Downloading yt-dlp...")
-            _safe_download_file(YT_DLP_WIN_URL, yt_path)
-        if "ffmpeg.exe" in missing:
+            yt_url = YT_DLP_WIN7_X86_URL if is_legacy_windows() else YT_DLP_WIN_URL
+            _safe_download_file(yt_url, yt_path)
+        if "ffmpeg.exe" in missing or "ffprobe.exe" in missing:
             if status_cb:
                 status_cb("Downloading ffmpeg...")
             zip_path = app_dir / "ffmpeg.zip"
-            _safe_download_file(FFMPEG_WIN_ZIP_URL, zip_path)
+            _safe_download_file(resolve_ffmpeg_zip_url(), zip_path)
             _extract_exe_from_zip(zip_path, "ffmpeg.exe", app_dir)
-            zip_path.unlink(missing_ok=True)
-        if "ffprobe.exe" in missing:
-            if status_cb:
-                status_cb("Downloading ffprobe...")
-            zip_path = app_dir / "ffprobe.zip"
-            _safe_download_file(FFPROBE_WIN_ZIP_URL, zip_path)
             _extract_exe_from_zip(zip_path, "ffprobe.exe", app_dir)
             zip_path.unlink(missing_ok=True)
         return True, "downloaded"
@@ -1397,8 +1409,8 @@ class Settings(QDialog):
         self.setWindowTitle(i18n(self.cfg, "settings.window_title", "出力設定"))
         self.resize(500, 700)
         self.setMinimumSize(460, 600)
-        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, False)
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setWindowFlag(Qt.WindowMaximizeButtonHint, False)
+        self.setAttribute(Qt.WA_DeleteOnClose)
 
         main_vbox = QVBoxLayout(self)
         main_vbox.setContentsMargins(0, 0, 0, 0)
@@ -1408,7 +1420,7 @@ class Settings(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         
         scroll_content = QWidget()
         scroll_content.setObjectName("SettingsContent")
@@ -1547,7 +1559,7 @@ class Settings(QDialog):
 
         layout.addSpacing(6)
         version_label = QLabel(f"Version: {VERSION}")
-        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_label.setAlignment(Qt.AlignCenter)
         version_label.setStyleSheet("color: #8e8e93; font-size: 10px;")
         layout.addWidget(version_label)
 
@@ -1636,7 +1648,7 @@ class Settings(QDialog):
             msg.setWindowTitle("エラー")
             suffix = f"\nログ: {log_path}" if log_path else ""
             msg.setText(f"設定の保存に失敗しました。{suffix}")
-            msg.exec()
+            msg.exec_()
 
 
 class LogViewerDialog(QDialog):
@@ -1649,7 +1661,7 @@ class LogViewerDialog(QDialog):
         apply_dialog_theme(self, theme)
         self.setWindowTitle("ログビュー")
         self.resize(760, 520)
-        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
+        self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 14)
@@ -1689,7 +1701,7 @@ class LogViewerDialog(QDialog):
         files = sorted(self.logs_dir.glob("*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
         for p in files:
             item = QListWidgetItem(p.name)
-            item.setData(Qt.ItemDataRole.UserRole, str(p))
+            item.setData(Qt.UserRole, str(p))
             self.list_logs.addItem(item)
         if self.list_logs.count() > 0:
             self.list_logs.setCurrentRow(0)
@@ -1700,7 +1712,7 @@ class LogViewerDialog(QDialog):
         if current is None:
             self.text_log.clear()
             return
-        path = Path(current.data(Qt.ItemDataRole.UserRole))
+        path = Path(current.data(Qt.UserRole))
         try:
             self.text_log.setPlainText(path.read_text(encoding="utf-8"))
         except Exception as e:
@@ -1765,7 +1777,7 @@ class PlaylistSelectDialog(QDialog):
         try:
             pal = self.search_input.palette()
             # PlaceholderText役割を使用して灰色に設定
-            pal.setColor(QPalette.ColorRole.PlaceholderText, QColor("#8e8e93"))
+            pal.setColor(QPalette.PlaceholderText, QColor("#8e8e93"))
             self.search_input.setPalette(pal)
         except Exception:
             pass
@@ -1813,18 +1825,18 @@ class PlaylistSelectDialog(QDialog):
             bg = "#000000" if "dark" in theme else "#ffffff"
         try:
             pal = self.palette()
-            pal.setColor(QPalette.ColorRole.Window, QColor(bg))
+            pal.setColor(QPalette.Window, QColor(bg))
             self.setPalette(pal)
         except Exception:
             pass
 
     def select_all(self):
         for i in range(self.list_widget.count()):
-            self.list_widget.item(i).setCheckState(Qt.CheckState.Checked)
+            self.list_widget.item(i).setCheckState(Qt.Checked)
 
     def clear_all(self):
         for i in range(self.list_widget.count()):
-            self.list_widget.item(i).setCheckState(Qt.CheckState.Unchecked)
+            self.list_widget.item(i).setCheckState(Qt.Unchecked)
 
     def download_all(self):
         self.result_mode = "all"
@@ -1834,8 +1846,8 @@ class PlaylistSelectDialog(QDialog):
         indices = []
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
-            if item.checkState() == Qt.CheckState.Checked:
-                idx = item.data(Qt.ItemDataRole.UserRole)
+            if item.checkState() == Qt.Checked:
+                idx = item.data(Qt.UserRole)
                 if idx is not None:
                     indices.append(int(idx))
         self.selected_indices = indices
@@ -1846,10 +1858,10 @@ class PlaylistSelectDialog(QDialog):
         if item is None:
             return
         state = item.checkState()
-        item.setCheckState(Qt.CheckState.Unchecked if state == Qt.CheckState.Checked else Qt.CheckState.Checked)
+        item.setCheckState(Qt.Unchecked if state == Qt.Checked else Qt.Checked)
 
     def eventFilter(self, obj, event):
-        if obj is self.list_widget.viewport() and event.type() == QEvent.Type.MouseButtonPress:
+        if obj is self.list_widget.viewport() and event.type() == QEvent.MouseButtonPress:
             item = self.list_widget.itemAt(event.pos())
             if item is not None:
                 self.toggle_item_check(item)
@@ -1891,9 +1903,9 @@ class PlaylistSelectDialog(QDialog):
             title = entry.get("title") or "(タイトル未取得)"
             text = f"{idx}. {title}"
             item = QListWidgetItem(text)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked)
-            item.setData(Qt.ItemDataRole.UserRole, idx)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked)
+            item.setData(Qt.UserRole, idx)
             self.list_widget.addItem(item)
 
     def _date_sort_key(self, entry):
@@ -1997,7 +2009,7 @@ class Main(QWidget):
         self.setObjectName("Main")
         self.setWindowTitle("Sagami Youtube Downloader")
         self.setAutoFillBackground(True)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
         icon_path = resolve_app_icon_path()
         if icon_path:
             self.setWindowIcon(QIcon(str(icon_path)))
@@ -2053,7 +2065,7 @@ class Main(QWidget):
 
         title = QLabel("Sagami YouTube Downloader")
         title.setObjectName("Title")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setAlignment(Qt.AlignCenter)
         card_layout.addWidget(title)
 
         # URL入力
@@ -2163,12 +2175,12 @@ class Main(QWidget):
 
         self.ytdlp_status_label = QLabel("yt-dlp - 確認待ち")
         self.ytdlp_status_label.setObjectName("YtDlpStatusLabel")
-        self.ytdlp_status_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.ytdlp_status_label.setAlignment(Qt.AlignRight)
         card_layout.addWidget(self.ytdlp_status_label)
 
         self.app_status_label = QLabel(f"{APP_DISPLAY_NAME} - {VERSION} 確認待ち")
         self.app_status_label.setObjectName("AppStatusLabel")
-        self.app_status_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.app_status_label.setAlignment(Qt.AlignRight)
         card_layout.addWidget(self.app_status_label)
 
         self.ytdlp_state = "pending"
@@ -2187,7 +2199,7 @@ class Main(QWidget):
         card_layout.addWidget(self.progress_bar)
 
         self.progress_detail_label = QLabel("")
-        self.progress_detail_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.progress_detail_label.setAlignment(Qt.AlignLeft)
         self.progress_detail_label.setWordWrap(True)
         self.progress_detail_label.setVisible(True)
         card_layout.addWidget(self.progress_detail_label)
@@ -2228,7 +2240,7 @@ class Main(QWidget):
             bg = "#000000" if "dark" in theme else "#ffffff"
         try:
             pal = self.palette()
-            pal.setColor(QPalette.ColorRole.Window, QColor(bg))
+            pal.setColor(QPalette.Window, QColor(bg))
             self.setPalette(pal)
         except Exception:
             pass
@@ -2296,7 +2308,7 @@ class Main(QWidget):
         box.setWindowTitle(title)
         box.setText(text)
         self._apply_messagebox_theme(box)
-        box.exec()
+        box.exec_()
 
     def _show_warning(self, title: str, text: str):
         box = QMessageBox(self)
@@ -2304,12 +2316,12 @@ class Main(QWidget):
         box.setWindowTitle(title)
         box.setText(text)
         self._apply_messagebox_theme(box)
-        box.exec()
+        box.exec_()
 
     def open_settings(self):
         prev_lang = str(self.cfg.get("language", "ja"))
         dlg = Settings(self)
-        if dlg.exec():
+        if dlg.exec_():
             self.cfg = load_config()
             self.update_mp4_option_state()
             self.apply_language_texts()
@@ -2584,7 +2596,7 @@ class Main(QWidget):
                 open_btn = msg.addButton("ページを開く", QMessageBox.ButtonRole.AcceptRole)
             
             msg.addButton("閉じる", QMessageBox.ButtonRole.RejectRole)
-            msg.exec()
+            msg.exec_()
             
             clicked = msg.clickedButton()
             if open_btn is not None and clicked == open_btn:
@@ -2599,7 +2611,7 @@ class Main(QWidget):
             msg.setMinimumWidth(420)
             msg.setText(f"更新通知\n{current_version} は最新です。")
             self._apply_messagebox_theme(msg)
-            msg.exec()
+            msg.exec_()
 
     def set_ytdlp_status(self, version: str, state: str):
         if not hasattr(self, "ytdlp_status_label"):
@@ -2736,7 +2748,7 @@ class Main(QWidget):
                 open_btn = msg.addButton("ページを開く", QMessageBox.ButtonRole.AcceptRole)
             
             msg.addButton("閉じる", QMessageBox.ButtonRole.RejectRole)
-            msg.exec()
+            msg.exec_()
             
             clicked = msg.clickedButton()
             if open_btn is not None and clicked == open_btn:
@@ -2751,7 +2763,7 @@ class Main(QWidget):
             msg.setMinimumWidth(420)
             msg.setText(f"更新通知\n{current_version} は最新です。")
             self._apply_messagebox_theme(msg)
-            msg.exec()
+            msg.exec_()
 
     def start(self):
         # Toggle: if a download is running, cancel it
@@ -2798,7 +2810,7 @@ class Main(QWidget):
                 if is_channel_url and not is_playlist_url:
                     source_name = str((meta or {}).get("channel_name", "") or "")
                 dlg = PlaylistSelectDialog(self, entries, source_label=source_label, source_name=source_name)
-                if dlg.exec() != QDialog.DialogCode.Accepted:
+                if dlg.exec_() != QDialog.Accepted:
                     return
                 if dlg.result_mode == "selected":
                     if not dlg.selected_indices:
@@ -2961,7 +2973,7 @@ class Main(QWidget):
             return
         try:
             self.setWindowOpacity(1.0)
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            self.setAttribute(Qt.WA_TranslucentBackground, False)
         except Exception:
             pass
         
@@ -3009,7 +3021,7 @@ class Main(QWidget):
         try:
             try:
                 self.setWindowOpacity(1.0)
-                self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+                self.setAttribute(Qt.WA_TranslucentBackground, False)
             except Exception:
                 pass
             self.update_theme_color(float(value), new_theme)
@@ -3143,11 +3155,13 @@ class Main(QWidget):
             "neon_dark": neon_dark_colors,
         }
 
+        # 現在のテーマと目標のテーマから、元の色と目標の色を決定
         start_theme = getattr(self, "_theme_anim_from", None) or self.cfg.get("theme", "dark")
         end_theme = getattr(self, "_theme_anim_to", None) or new_theme
         start_colors = theme_colors.get(start_theme, dark_colors).copy()
         end_colors = theme_colors.get(end_theme, light_colors).copy()
 
+        # JSON優先でテーマ情報を取得
         json_start_colors, json_start_props = load_theme_profile(start_theme)
         json_end_colors, json_end_props = load_theme_profile(end_theme)
 
@@ -3157,6 +3171,7 @@ class Main(QWidget):
             if key in json_end_colors:
                 end_colors[key] = json_end_colors[key]
 
+        # JSONが無い場合はCSSのMETADATAをフォールバック
         if not json_start_colors:
             meta_start = parse_theme_metadata(start_theme)
             for key in ("bg", "card", "label", "title", "input_bg", "input_text", "input_border", "btn_bg", "btn_text"):
@@ -3173,7 +3188,8 @@ class Main(QWidget):
             start_props.update(json_start_props)
         if json_end_props:
             end_props.update(json_end_props)
-
+        
+        # 進度に応じて色を補間
         bg_color = lerp_color(start_colors["bg"], end_colors["bg"], progress)
         card_color = lerp_color(start_colors["card"], end_colors["card"], progress)
         label_color = lerp_color(start_colors["label"], end_colors["label"], progress)
@@ -3240,7 +3256,7 @@ class Main(QWidget):
         
         try:
             # --- 1. ウィンドウフラグの設定 (最前面表示の切替) ---
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, self.is_mini_mode)
+            self.setWindowFlag(Qt.WindowStaysOnTopHint, self.is_mini_mode)
             
             # --- 2. サイズ制約の更新 ---
             if self.is_mini_mode:
@@ -3309,7 +3325,7 @@ class Main(QWidget):
         self.apply_language_texts()
         try:
             self.setWindowOpacity(1.0)
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            self.setAttribute(Qt.WA_TranslucentBackground, False)
             self._apply_startup_palette()
         except Exception:
             pass
@@ -3334,4 +3350,4 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon(str(icon_path)))
     w = Main()
     w.show()
-    sys.exit(app.exec())
+    sys.exit(app.exec_())

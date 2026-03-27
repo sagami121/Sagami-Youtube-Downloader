@@ -13,6 +13,10 @@ if not exist "main.py" (
   echo [ERROR] main.py not found.
   exit /b 1
 )
+if not exist "main_legacy.py" (
+  echo [ERROR] main_legacy.py not found.
+  exit /b 1
+)
 if not exist "yt-dlp.exe" (
   echo [ERROR] yt-dlp.exe not found.
   exit /b 1
@@ -51,20 +55,36 @@ if not exist "%ICON_FILE%" (
 )
 
 echo [START] Build main app
-python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyside6 --windows-console-mode=disable --windows-icon-from-ico="%ICON_FILE%" --output-dir="%OUTPUT_DIR%" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="%ICON_FILE%=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language --include-data-dir=theme=theme main.py
+py -3.13 -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyside6 --windows-console-mode=disable --windows-icon-from-ico="%ICON_FILE%" --output-dir="%OUTPUT_DIR%" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="%ICON_FILE%=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language --include-data-dir=theme=theme main.py
 if errorlevel 1 (
   echo [ERROR] Build main app failed.
   exit /b 1
 )
 echo [DONE] Build main app
 
+echo [START] Build legacy app
+py -3.8 -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyqt5 --windows-console-mode=disable --windows-icon-from-ico="%ICON_FILE%" --output-dir="%OUTPUT_DIR%" --output-filename="Sagami Youtube Downloader Legacy.exe" --include-data-file="%ICON_FILE%=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language --include-data-dir=theme=theme main_legacy.py
+if errorlevel 1 (
+  echo [ERROR] Build legacy app failed.
+  exit /b 1
+)
+echo [DONE] Build legacy app
+
 echo [START] Package output
 if not exist "%PACKAGE_DIR%" mkdir "%PACKAGE_DIR%"
+if not exist "%PACKAGE_DIR%\legacy" mkdir "%PACKAGE_DIR%\legacy"
 
 @REM main.distの中身をパッケージディレクトリにコピー
 xcopy /E /I /Y "%OUTPUT_DIR%\main.dist\*" "%PACKAGE_DIR%\" >nul
 if errorlevel 1 (
   echo [ERROR] Copy from main.dist failed.
+  exit /b 1
+)
+
+@REM main_legacy.distの中身をパッケージディレクトリにコピー
+xcopy /E /I /Y "%OUTPUT_DIR%\main_legacy.dist\*" "%PACKAGE_DIR%\legacy\" >nul
+if errorlevel 1 (
+  echo [ERROR] Copy from main_legacy.dist failed.
   exit /b 1
 )
 
