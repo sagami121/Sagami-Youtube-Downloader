@@ -275,7 +275,7 @@ jobs:
       - name: Get Version
         id: meta
         run: |
-          VERSION=$(python3 -c "import re; content = open('main.py', encoding='utf-8').read(); print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', content).group(1))")
+          VERSION=$(python3 -c "import re; content = open('constants.py', encoding='utf-8').read(); print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', content).group(1))")
           echo "tag_name=v$VERSION" >> $GITHUB_OUTPUT
 
       - name: Download Artifacts
