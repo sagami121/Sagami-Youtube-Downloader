@@ -36,3 +36,8 @@ logs/
 *.so
 *.dylib
 *.exe
+
+# 秘密設定ファイル
+.env*
+
+legacy/

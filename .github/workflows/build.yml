@@ -33,6 +33,13 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Create .env.Production_environment
+        shell: bash
+        run: |
+          echo "ERROR_REPORT_API_URL=${{ secrets.ERROR_REPORT_API_URL }}" > .env.Production_environment
+          echo "ERROR_REPORT_API_KEY=${{ secrets.ERROR_REPORT_API_KEY }}" >> .env.Production_environment
+          echo "Created production environment file for build."
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -132,7 +139,7 @@ jobs:
       - name: Build with Nuitka (Windows)
         if: runner.os == 'Windows'
         run: |
-          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 --windows-console-mode=disable --windows-icon-from-ico="Sagami Youtube Downloader.ico" --output-dir="nuitka_dist" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="Sagami Youtube Downloader.ico=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language --include-data-dir=theme=theme main.py
+          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 --windows-console-mode=disable --windows-icon-from-ico="Sagami Youtube Downloader.ico" --output-dir="nuitka_dist" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="Sagami Youtube Downloader.ico=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language --include-data-dir=theme=theme --include-data-file=".env.Production_environment=.env.Production_environment" main.py
 
       - name: Build with PyInstaller (Linux)
         if: runner.os == 'Linux'
@@ -140,6 +147,7 @@ jobs:
           pyinstaller --noconfirm --onefile --windowed \
             --add-data "language:language" \
             --add-data "theme:theme" \
+            --add-data ".env.Production_environment:." \
             --add-binary "yt-dlp:." \
             --add-binary "ffmpeg:." \
             --add-binary "ffprobe:." \
@@ -153,6 +161,7 @@ jobs:
             --target-arch universal2 \
             --add-data "language:language" \
             --add-data "theme:theme" \
+            --add-data ".env.Production_environment:." \
             --add-binary "yt-dlp:." \
             --add-binary "ffmpeg:." \
             --add-binary "ffprobe:." \
