@@ -70,11 +70,11 @@ jobs:
             ffprobe.exe
           key: ${{ runner.os }}-binaries
 
-      - name: Get Version from main.py
+      - name: Get Version from constants.py
         id: get_version
         shell: bash
         run: |
-          VERSION=$(python -c "import re; content = open('main.py', encoding='utf-8').read(); print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', content).group(1))")
+          VERSION=$(python -c "import re; content = open('constants.py', encoding='utf-8').read(); print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', content).group(1))")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
           echo "Detected version: $VERSION"
