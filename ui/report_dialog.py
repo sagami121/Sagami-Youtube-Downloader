@@ -34,12 +34,20 @@ class ErrorReportDialog(QDialog):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(14)
 
-        head = QLabel("アプリでエラーが発生しました。")
+        # メッセージの切り替え
+        if self.context_info == "Manual Report":
+            msg = "不具合の報告や、改善のご提案をお聞かせください。"
+            sub_msg = "お送りいただいた内容は匿名化され、開発の参考にさせていただきます。よろしければ送信をお願いします。"
+        else:
+            msg = "アプリでエラーが発生しました。"
+            sub_msg = "以下に示す情報は匿名化されており、個人を特定する情報は含まれません。内容を確認して、よろしければ GitHub で報告してください。"
+
+        head = QLabel(msg)
         head.setWordWrap(True)
         head.setStyleSheet("font-weight: bold; font-size: 14px;")
         layout.addWidget(head)
 
-        desc = QLabel("以下に示す情報は匿名化されており、個人を特定する情報は含まれません。内容を確認して、よろしければ GitHub で報告してください。")
+        desc = QLabel(sub_msg)
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #8e8e93;")
         layout.addWidget(desc)
