@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QProgressBar, QFileDialog, QMessageBox, QFrame, QSizePolicy,
     QApplication, QMenu, QComboBox
 )
-from PySide6.QtCore import Qt, QUrl, QTimer, QThread
+from PySide6.QtCore import Qt, QUrl, QTimer, QThread, QRect, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QIcon, QAction, QDesktopServices, QCursor, QFontDatabase, QColor, QPalette
 
 from constants import (
@@ -98,6 +98,7 @@ class Main(QWidget):
         self.btn_dl.setText(self.t("main.start_download", "Start Download"))
         self.btn_settings.setText(self.t("main.settings", "Settings"))
         self.btn_update_ytdlp.setText(self.t("main.update_ytdlp", "Update yt-dlp"))
+        self.btn_report.setText(self.t("main.bug_report", "不具合報告"))
         self.media_quality_label.setText(self.t("main.video_quality", "Video Quality"))
         self.set_ytdlp_status(self.ytdlp_version, self.ytdlp_state)
         self.set_app_status(self.app_state, self.app_current_version, self.app_latest_version)
@@ -189,6 +190,14 @@ class Main(QWidget):
         self.btn_theme.setMinimumHeight(35)
         self.btn_theme.clicked.connect(self.toggle_theme)
         top_bar.addWidget(self.btn_theme)
+
+        self.btn_report = QPushButton("不具合報告")
+        self.btn_report.setObjectName("SecondaryBtn")
+        self.btn_report.setFixedWidth(100)
+        self.btn_report.setMinimumHeight(35)
+        self.btn_report.clicked.connect(self.show_manual_report)
+        top_bar.addWidget(self.btn_report)
+
         main_layout.addLayout(top_bar)
 
         # スペーサー
@@ -312,8 +321,9 @@ class Main(QWidget):
         self.btn_update_ytdlp.setObjectName("SecondaryBtn")
         self.btn_update_ytdlp.setMinimumHeight(46)
         self.btn_update_ytdlp.clicked.connect(lambda: self._safe_call("update_ytdlp", self.update_ytdlp))
-        self.btn_update_ytdlp.setVisible(False)
         actions_layout.addWidget(self.btn_update_ytdlp)
+
+        self.update_dev_tools_visibility()
 
         card_layout.addLayout(actions_layout)
 
@@ -483,8 +493,17 @@ class Main(QWidget):
             self.cfg = load_config()
             self.update_mp4_option_state()
             self.apply_language_texts()
+            self.update_dev_tools_visibility()
             if str(self.cfg.get("language", "ja")) != prev_lang:
                 self._show_info("Language", "Language setting updated.")
+
+    def update_dev_tools_visibility(self):
+        is_dev = self.cfg.get("developer_mode", False)
+        self.btn_update_ytdlp.setVisible(is_dev)
+
+    def show_manual_report(self):
+        dlg = ErrorReportDialog(self, context_info="Manual Report")
+        dlg.exec()
 
     def paste_url(self):
         raw = (QApplication.clipboard().text() or "").strip()

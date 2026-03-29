@@ -106,11 +106,18 @@ class ErrorReport:
 
     def to_markdown(self, include_system_info=True) -> str:
         lines = []
-        if self.details:
-            lines.append("## 詳細")
-            lines.append(self.details)
-            lines.append("")
-            
+        
+        # 詳細
+        lines.append("## 詳細")
+        lines.append(self.details if self.details else "記述なし")
+        lines.append("")
+        
+        # バージョン
+        lines.append("## バージョン")
+        lines.append(f"`{VERSION}`")
+        lines.append("")
+        
+        # デバイス情報
         if include_system_info:
             lines.append("## デバイス情報")
             lines.append(f"- **OS**: `{self.system_info.get('OS', '不明')}`")
@@ -143,7 +150,7 @@ class ErrorReport:
         
         # タイトル生成
         main_title = self.title.strip() if self.title else "名称未設定の報告"
-        summary = f"【不具合報告】{main_title} (Ver {VERSION})"
+        summary = f"【不具合報告】{main_title}"
         content = self.to_markdown()
         
         # Discord Embed 制限 (4096文字) に対応
@@ -187,8 +194,9 @@ class ErrorReport:
         import json
         
         # サーバー側で使い分けられるように情報を集約して送る
+        main_title = self.title.strip() if self.title else "名称未設定の報告"
         payload = {
-            "title": self.title or "名称未設定の報告",
+            "title": main_title,
             "version": VERSION, # アプリのバージョン
             "markdown": self.to_markdown(include_system_info=True),    # OS情報あり (Discord用)
             "markdown_no_sys": self.to_markdown(include_system_info=False), # OS情報なし (GitHub用)

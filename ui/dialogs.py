@@ -183,12 +183,8 @@ class Settings(QDialog):
         version_label.setStyleSheet("color: #8e8e93; font-size: 10px;")
         layout.addWidget(version_label)
         
-        # 開発者モードトグル
-        layout.addSpacing(10)
-        self.dev_mode_cb = QCheckBox("開発者モードを有効にする (Enable Developer Mode)")
-        self.dev_mode_cb.setChecked(self.cfg.get("developer_mode", False))
-        self.dev_mode_cb.toggled.connect(self._toggle_dev_section)
-        layout.addWidget(self.dev_mode_cb)
+        # 開発者モードトグル (UIからは非表示、config.jsonでのみ制御)
+        is_developer = self.cfg.get("developer_mode", False)
 
         # エラー報告設定セクション (開発者モード時のみ表示)
         self.dev_section_widget = QWidget()
@@ -236,8 +232,8 @@ class Settings(QDialog):
         
         layout.addWidget(self.dev_section_widget)
         
-        # 初期表示の反映
-        self.dev_section_widget.setVisible(self.dev_mode_cb.isChecked())
+        # 初期表示の反映 (configの値に基づく)
+        self.dev_section_widget.setVisible(is_developer)
         
         # バグ報告ボタン
         self.btn_bug_report = QPushButton("不具合を報告する (Send Bug Report)")
@@ -316,7 +312,7 @@ class Settings(QDialog):
             self.cfg["embed_subtitles"] = self.chk_subtitles.isChecked()
             self.cfg["cookies_browser"] = self.cookies_combo.currentData() or "none"
             self.cfg["proxy_url"] = self.proxy_input.text()
-            self.cfg["developer_mode"] = self.dev_mode_cb.isChecked()
+            # developer_mode は UI にないため既存の値を維持
             self.cfg["error_webhook_url"] = self.webhook_input.text().strip()
             self.cfg["error_report_api_url"] = self.api_url_input.text().strip()
             self.cfg["error_report_api_key"] = self.api_key_input.text().strip()
