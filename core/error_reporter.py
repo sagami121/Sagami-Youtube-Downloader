@@ -5,6 +5,13 @@ import subprocess
 import traceback
 from pathlib import Path
 
+try:
+    import psutil
+    import cpuinfo
+except ImportError:
+    psutil = None
+    cpuinfo = None
+
 from constants import VERSION, APP_GITHUB_REPO_URL
 
 class ErrorReport:
@@ -22,59 +29,103 @@ class ErrorReport:
 
         info = {
             "OS": f"{platform.system()} {platform.release()} ({platform.machine()})",
-            "CPU": "取得失敗",
-            "GPU": "取得失敗"
+            "CPU": "情報の取得に失敗",
+            "GPU": "情報の取得に失敗",
+            "RAM": "不明"
         }
         
-        def run_pwsh(cmd):
+        # 1. CPU情報の取得 (py-cpuinfoを使用)
+        if cpuinfo:
             try:
-                # PowerShellを使用して情報を取得 (wmicより確実)
-                process = subprocess.Popen(["powershell", "-Command", cmd], 
-                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
-                                         text=False, shell=True)
-                out, _ = process.communicate(timeout=5)
-                # Windowsの日本語環境(cp932)とUTF-8の両方を試す
+                c_info = cpuinfo.get_cpu_info()
+                cpu_name = c_info.get('brand_raw') or c_info.get('brand')
+                if cpu_name:
+                    info["CPU"] = str(cpu_name)
+            except Exception:
+                pass
+        
+        # 2. メモリ情報の取得 (psutilを使用)
+        if psutil:
+            try:
+                mem = psutil.virtual_memory()
+                total_gb = round(mem.total / (1024**3), 1)
+                info["RAM"] = f"{total_gb} GB"
+            except Exception:
+                pass
+
+        # 3. GPU情報の取得 (Multi-layered chain)
+        def get_gpu():
+            # 3-1. wmic (標準的な方法)
+            try:
+                out = subprocess.check_output(["wmic", "path", "win32_VideoController", "get", "name"], 
+                                           universal_newlines=True, stderr=subprocess.DEVNULL)
+                gpus = [l.strip() for l in out.splitlines() if l.strip() and l.strip().lower() != "name"]
+                if gpus: return gpus
+            except Exception: pass
+
+            # 3-2. レジストリ探索 (wmicが制限されている環境用)
+            try:
+                # ディスプレイアダプタのクラスIDを指定して検索
+                reg_cmd = ["reg", "query", "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}", "/s", "/v", "DriverDesc"]
+                out_raw = subprocess.check_output(reg_cmd, stderr=subprocess.DEVNULL)
+                # エンコーディングの判定
+                out_text = ""
                 for enc in ["cp932", "utf-8", "utf-16"]:
                     try:
-                        res = out.decode(enc).strip()
-                        if res: return res
+                        out_text = out_raw.decode(enc)
+                        break
                     except Exception: continue
-                return ""
-            except Exception:
-                return ""
+                
+                if out_text:
+                    # DriverDescの後ろの情報を抽出
+                    gpus = []
+                    for line in out_text.splitlines():
+                        if "DriverDesc" in line:
+                            parts = line.split("REG_SZ")
+                            if len(parts) > 1:
+                                desc = parts[1].strip()
+                                if desc and desc not in gpus:
+                                    gpus.append(desc)
+                    if gpus: return gpus
+            except Exception: pass
 
-        # CPU情報の取得
-        cpu_res = run_pwsh("(Get-CimInstance Win32_Processor).Name")
-        if cpu_res: info["CPU"] = cpu_res
+            # 3-3. dxdiag (最終手段)
+            try:
+                # 診断に時間がかかるため、バックグラウンドで一時ファイルに出力して解析
+                temp_file = Path(os.environ.get("TEMP", ".")) / "gpu_check.txt"
+                subprocess.run(["dxdiag", "/t", str(temp_file)], timeout=15, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                if temp_file.exists():
+                    with open(temp_file, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                        match = re.search(r"Card name: (.+)", content)
+                        if match: 
+                            gpu = match.group(1).strip()
+                            try: temp_file.unlink() # 掃除
+                            except: pass
+                            return [gpu]
+            except Exception: pass
             
-        # GPU情報の取得
-        gpu_raw = run_pwsh("(Get-CimInstance Win32_VideoController).Name")
-        if gpu_raw:
-            # 複数行(複数のGPU)がある場合に対応
-            gpu_list = [l.strip() for l in gpu_raw.splitlines() if l.strip()]
-            
-            # 優先順位付け: 物理GPU(Intel, NVIDIA, AMD, Radeon)を優先
-            real_keywords = ["intel", "nvidia", "amd", "radeon", "geforce", "arc"]
-            virtual_keywords = ["virtual", "mirror", "basic", "parsec", "microsoft remote"]
+            return []
+
+        gpus = get_gpu()
+        if gpus:
+            # 優先順位付けと仮想デバイスの除外 (既存ロジック転用)
+            real_keywords = ["intel", "nvidia", "amd", "radeon", "geforce", "arc", "rtx", "gtx"]
+            virtual_keywords = ["virtual", "mirror", "basic", "parsec", "remote", "citrix"]
             
             def gpu_priority(name):
-                name_low = name.lower()
-                # 仮想デバイスは最下位(2)
-                if any(k in name_low for k in virtual_keywords): return 2
-                # 物理ハードウェアは最上位(0)
-                if any(k in name_low for k in real_keywords): return 0
-                # その他は中間(1)
+                nl = name.lower()
+                if any(k in nl for k in virtual_keywords): return 2
+                if any(k in nl for k in real_keywords): return 0
                 return 1
                 
-            gpu_list.sort(key=gpu_priority)
-            
-            # 物理GPU(優先度0)が見つかった場合、仮想デバイス(優先度2)をすべて除外する
-            has_real_gpu = any(gpu_priority(g) == 0 for g in gpu_list)
-            if has_real_gpu:
-                gpu_list = [g for g in gpu_list if gpu_priority(g) != 2]
+            gpus.sort(key=gpu_priority)
+            has_real = any(gpu_priority(g) == 0 for g in gpus)
+            if has_real:
+                gpus = [g for g in gpus if gpu_priority(g) != 2]
                 
-            info["GPU"] = ", ".join(gpu_list)
-            
+            info["GPU"] = ", ".join(gpus)
+
         ErrorReport._cached_info = info
         return info
 
@@ -123,6 +174,7 @@ class ErrorReport:
             lines.append(f"- **OS**: `{self.system_info.get('OS', '不明')}`")
             lines.append(f"- **CPU**: `{self.system_info.get('CPU', '不明')}`")
             lines.append(f"- **GPU**: `{self.system_info.get('GPU', '不明')}`")
+            lines.append(f"- **RAM**: `{self.system_info.get('RAM', '不明')}`")
         
         return "\n".join(lines)
 
