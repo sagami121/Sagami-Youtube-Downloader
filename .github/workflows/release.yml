@@ -134,9 +134,11 @@ jobs:
             curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o yt-dlp
           fi
           if [ ! -f ffmpeg ] || [ ! -f ffprobe ]; then
-            curl -L https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macosx-universal2-gpl.tar.gz -o ffmpeg.tar.gz
-            tar -xf ffmpeg.tar.gz --strip-components=2 "*/bin/ffmpeg" "*/bin/ffprobe"
-            rm ffmpeg.tar.gz
+            curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-osx-64.zip -o ffmpeg.zip
+            unzip -o ffmpeg.zip
+            curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-osx-64.zip -o ffprobe.zip
+            unzip -o ffprobe.zip
+            rm -f ffmpeg.zip ffprobe.zip
           fi
           chmod +x yt-dlp ffmpeg ffprobe
 
