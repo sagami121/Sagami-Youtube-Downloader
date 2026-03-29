@@ -16,6 +16,7 @@ nuitka-crash-report.xml
 
 # Settings / Config
 config.json
+history.json
 
 # OS 系
 .DS_Store
