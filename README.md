@@ -15,47 +15,54 @@
   </a>
 </p>
 
+## 主な機能
+
+- **マルチフォーマット対応**: MP4 (動画), MP3 / WAV / M4A (音声) への変換が可能。
+- **高品質ダウンロード**: 最大 4K 解像度、60fps まで対応。
+- **プレイリスト/チャンネル保存**: 一括ダウンロードや、個別の動画選択が可能。
+- **時間指定ダウンロード (トリミング)**: 動画の特定の範囲（開始~終了）だけを保存。
+- **ダウンロード履歴**: 過去にダウンロードした動画を一覧表示し、再アクセスや確認が可能。
+- **ダーク / ライトモード**: OS の設定や好みに合わせてテーマを切り替え。切り替え時にはスムーズなアニメーションを搭載。
+- **マルチ言語サポート**: 日本語、英語、韓国語、中国語 (簡体字) に対応。
+- **ミニ UI モード**: デスクトップを邪魔しないコンパクトな表示。
 
 ## 使い方
 
-1. `Sagami Youtube Downloader.exe` を実行
+1. **URL を入力**: YouTube の動画またはプレイリストの URL を入力欄に貼り付けます。
+2. **保存先を選択**: 「保存先」ボタンからフォルダを指定します。
+3. **品質・形式を設定**:
+   - **Video**: 画質 (1080p, 720p 等) と FPS を選択。
+   - **Audio**: 音質 (最高, 128kbps 等) を選択。
+4. **詳細設定 (オプション)**:
+   - 「詳細設定」から、サムネイルの埋め込み、字幕の追加、ファイル名テンプレートの設定が可能です。
+   - クッキー設定やプロキシ設定もここで行えます。
+5. **ダウンロード開始**: 「ダウンロードを開始」をクリック。
 
-2. YouTube URL を入力  
-3. 保存先フォルダを選択  
-4. 必要に応じて「時間指定」に `開始~終了` を入力（例: `0:00~0:15`）  
-5. 「詳細設定」で以下を設定  
-   - 出力形式（`MP4 / MP3 / WAV / M4A`）  
-   - ファイル名テンプレート  
-   - サムネイル埋め込み（MP4のみ）  
-6. メイン画面で品質を設定  
-   - `MP4` のとき: 画質 / FPS  
-   - `MP3 / WAV / M4A` のとき: 音質  
-7. 「ダウンロードを開始」をクリック
+## システム要件
+- **OS**: Windows 10/11 (推奨), macOS, Linux 
 
-- ダウンロード中はボタンのテキストが「ダウンロード中…」に変化  
-- 完了すると通知メッセージが表示されます
-
-## 更新確認
-
-- 起動時にアプリ更新を自動確認します（最新版の場合は通知しません）  
-- 手動で確認する場合は「アプリ更新を確認」をクリック  
-- 更新に失敗した場合は、`logs` フォルダに `txt（ini形式）` のログが出力されます
-
-## ログ出力
-
-- エラー時は `logs` フォルダに `txt（ini形式）` のログを出力します  
-- 例: `download_error_YYYYMMDD_HHMMSS.txt`, `update_error_YYYYMMDD_HHMMSS.txt`
-
-## ビルド方法（Nuitka）
-Nuitkaでビルドするのを推奨します
+## ビルド方法
+Nuitka を使用して、ビルドすることを推奨します。
 
 ### 事前準備
-- Python 3.13
-- `pip install -r requirements.txt`
-- `pip install nuitka`
-- Visual Studio C++ Build Tools（MSVC）
+- Python 3.10+ (3.13 推奨)
+- [Visual Studio C++ Build Tools (MSVC)](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+- 依存パッケージのインストール:
+  ```bash
+  pip install -r requirements.txt
+  pip install nuitka
+  ```
 
-### Sagami Youtube Downloader.exeをビルド
+### ビルド実行 (Windows)
 ```powershell
 python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --enable-plugin=pyside6 --windows-console-mode=disable --windows-icon-from-ico="Sagami Youtube Downloader.ico" --output-dir="nuitka_dist" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="Sagami Youtube Downloader.ico=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language --include-data-dir=theme=theme main.py
 ```
+
+## ログとバグ報告
+
+- エラー発生時は `logs` フォルダに詳細なログ (`app.log`) が自動生成されます。
+- 不具合報告機能を通じて、エラー内容を送信できます（個人情報は収集されません）。
+
+## ライセンス
+
+このプロジェクトは [MIT License](LICENSE) の下で公開されています。
