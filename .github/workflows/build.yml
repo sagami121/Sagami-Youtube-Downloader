@@ -5,6 +5,9 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -33,13 +36,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Create .env.Production_environment
-        shell: bash
-        run: |
-          echo "ERROR_REPORT_API_URL=${{ secrets.ERROR_REPORT_API_URL }}" > .env.Production_environment
-          echo "ERROR_REPORT_API_KEY=${{ secrets.ERROR_REPORT_API_KEY }}" >> .env.Production_environment
-          echo "Created production environment file for build."
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -60,18 +56,6 @@ jobs:
             ~/.cache/pyinstaller
             ~/.cache/nuitka
           key: ${{ runner.os }}-buildcache
-
-      - name: Cache binaries
-        uses: actions/cache@v4
-        with:
-          path: |
-            yt-dlp
-            yt-dlp.exe
-            ffmpeg
-            ffmpeg.exe
-            ffprobe
-            ffprobe.exe
-          key: ${{ runner.os }}-binaries
 
       - name: Get Version from constants.py
         id: get_version
@@ -106,46 +90,56 @@ jobs:
         run: |
           choco install innosetup -y
 
+      - name: Prepare binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "yt-dlp.exe"
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg-temp"
+          $ffmpeg = Get-ChildItem -Path "ffmpeg-temp" -Filter "ffmpeg.exe" -Recurse | Select-Object -First 1
+          $ffprobe = Get-ChildItem -Path "ffmpeg-temp" -Filter "ffprobe.exe" -Recurse | Select-Object -First 1
+          if (!$ffmpeg -or !$ffprobe) { throw "ffmpeg archive did not contain ffmpeg.exe and ffprobe.exe." }
+          Copy-Item -LiteralPath $ffmpeg.FullName -Destination "ffmpeg.exe"
+          Copy-Item -LiteralPath $ffprobe.FullName -Destination "ffprobe.exe"
+          Remove-Item -Recurse -Force "ffmpeg-temp", "ffmpeg.zip"
+          foreach ($binary in @("yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe")) {
+            if (!(Test-Path $binary) -or (Get-Item $binary).Length -eq 0) {
+              throw "Required binary was not downloaded: $binary"
+            }
+          }
+
       - name: Prepare binaries (Linux)
         if: runner.os == 'Linux'
         run: |
-          if [ ! -f yt-dlp ]; then
-            curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
-          fi
-          if [ ! -f ffmpeg ]; then
-            curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-linux-64.zip -o ffmpeg.zip
-            unzip -o ffmpeg.zip
-            rm ffmpeg.zip
-          fi
-          if [ ! -f ffprobe ]; then
-            curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
-            unzip -o ffprobe.zip
-            rm ffprobe.zip
-          fi
+          set -euo pipefail
+          curl -fL --retry 3 https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
+          curl -fL --retry 3 https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-linux-64.zip -o ffmpeg.zip
+          unzip -o ffmpeg.zip
+          rm -f ffmpeg.zip
+          curl -fL --retry 3 https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
+          unzip -o ffprobe.zip
+          rm -f ffprobe.zip
           chmod +x yt-dlp ffmpeg ffprobe
 
       - name: Prepare binaries (macOS)
         if: runner.os == 'macOS'
         run: |
-          if [ ! -f yt-dlp ]; then
-            curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o yt-dlp
-          fi
-          if [ ! -f ffmpeg ]; then
-            curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-osx-64.zip -o ffmpeg.zip
-            unzip -o ffmpeg.zip
-            rm ffmpeg.zip
-          fi
-          if [ ! -f ffprobe ]; then
-            curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-osx-64.zip -o ffprobe.zip
-            unzip -o ffprobe.zip
-            rm ffprobe.zip
-          fi
+          set -euo pipefail
+          curl -fL --retry 3 https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o yt-dlp
+          curl -fL --retry 3 https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-osx-64.zip -o ffmpeg.zip
+          unzip -o ffmpeg.zip
+          rm -f ffmpeg.zip
+          curl -fL --retry 3 https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-osx-64.zip -o ffprobe.zip
+          unzip -o ffprobe.zip
+          rm -f ffprobe.zip
           chmod +x yt-dlp ffmpeg ffprobe
 
       - name: Build with Nuitka (Windows)
         if: runner.os == 'Windows'
         run: |
-          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 --windows-console-mode=disable --windows-icon-from-ico="Sagami Youtube Downloader.ico" --output-dir="nuitka_dist" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="Sagami Youtube Downloader.ico=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language --include-data-dir=theme=theme --include-data-file=".env.Production_environment=.env.Production_environment" main.py
+          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 --windows-console-mode=disable --windows-icon-from-ico="Sagami Youtube Downloader.ico" --output-dir="nuitka_dist" --output-filename="Sagami Youtube Downloader.exe" --include-data-file="Sagami Youtube Downloader.ico=Sagami Youtube Downloader.ico" --include-data-file=yt-dlp.exe=yt-dlp.exe --include-data-file=ffmpeg.exe=ffmpeg.exe --include-data-file=ffprobe.exe=ffprobe.exe --include-data-dir=language=language --include-data-dir=theme=theme main.py
 
       - name: Build with PyInstaller (Linux)
         if: runner.os == 'Linux'
@@ -153,7 +147,6 @@ jobs:
           pyinstaller --noconfirm --onefile --windowed \
             --add-data "language:language" \
             --add-data "theme:theme" \
-            --add-data ".env.Production_environment:." \
             --add-binary "yt-dlp:." \
             --add-binary "ffmpeg:." \
             --add-binary "ffprobe:." \
@@ -167,7 +160,6 @@ jobs:
             --target-arch universal2 \
             --add-data "language:language" \
             --add-data "theme:theme" \
-            --add-data ".env.Production_environment:." \
             --add-binary "yt-dlp:." \
             --add-binary "ffmpeg:." \
             --add-binary "ffprobe:." \

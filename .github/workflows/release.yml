@@ -2,11 +2,15 @@ name: Release
 
 on:
   push:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
+    tags: [ "v*" ]
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    permissions:
+      contents: read
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
@@ -32,12 +36,12 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Create .env.Production_environment
+      - name: Create public report endpoint config
         shell: bash
+        env:
+          ERROR_REPORT_API_URL: ${{ secrets.ERROR_REPORT_API_URL }}
         run: |
-          echo "ERROR_REPORT_API_URL=${{ secrets.ERROR_REPORT_API_URL }}" > .env.Production_environment
-          echo "ERROR_REPORT_API_KEY=${{ secrets.ERROR_REPORT_API_KEY }}" >> .env.Production_environment
-          echo "Created production environment file for release build."
+          printf 'ERROR_REPORT_API_URL=%s\n' "$ERROR_REPORT_API_URL" > .env.Production_environment
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -57,18 +61,6 @@ jobs:
         with:
           path: ~/.cache/pyinstaller
           key: ${{ runner.os }}-pyinstaller
-
-      - name: Cache binaries
-        uses: actions/cache@v4
-        with:
-          path: |
-            yt-dlp
-            yt-dlp.exe
-            ffmpeg
-            ffmpeg.exe
-            ffprobe
-            ffprobe.exe
-          key: ${{ runner.os }}-binaries
 
       - name: Get Version from constants.py
         id: get_version
@@ -107,45 +99,46 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          if (!(Test-Path yt-dlp.exe)) {
-            Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "yt-dlp.exe"
-          }
-          if (!(Test-Path ffmpeg.exe) -or !(Test-Path ffprobe.exe)) {
-            Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
-            Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg-temp"
-            Get-ChildItem -Path "ffmpeg-temp" -Filter "ffmpeg.exe" -Recurse | Copy-Item -Destination "ffmpeg.exe"
-            Get-ChildItem -Path "ffmpeg-temp" -Filter "ffprobe.exe" -Recurse | Copy-Item -Destination "ffprobe.exe"
-            Remove-Item -Recurse -Force "ffmpeg-temp", "ffmpeg.zip"
+          $ErrorActionPreference = "Stop"
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "yt-dlp.exe"
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg-temp"
+          $ffmpeg = Get-ChildItem -Path "ffmpeg-temp" -Filter "ffmpeg.exe" -Recurse | Select-Object -First 1
+          $ffprobe = Get-ChildItem -Path "ffmpeg-temp" -Filter "ffprobe.exe" -Recurse | Select-Object -First 1
+          if (!$ffmpeg -or !$ffprobe) { throw "ffmpeg archive did not contain ffmpeg.exe and ffprobe.exe." }
+          Copy-Item -LiteralPath $ffmpeg.FullName -Destination "ffmpeg.exe"
+          Copy-Item -LiteralPath $ffprobe.FullName -Destination "ffprobe.exe"
+          Remove-Item -Recurse -Force "ffmpeg-temp", "ffmpeg.zip"
+          foreach ($binary in @("yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe")) {
+            if (!(Test-Path $binary) -or (Get-Item $binary).Length -eq 0) {
+              throw "Required binary was not downloaded: $binary"
+            }
           }
 
       - name: Prepare binaries (Linux)
         if: runner.os == 'Linux'
         run: |
-          if [ ! -f yt-dlp ]; then
-            curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
-          fi
-          if [ ! -f ffmpeg ] || [ ! -f ffprobe ]; then
-            curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-linux-64.zip -o ffmpeg.zip
-            unzip -o ffmpeg.zip
-            curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
-            unzip -o ffprobe.zip
-            rm -f ffmpeg.zip ffprobe.zip
-          fi
+          set -euo pipefail
+          curl -fL --retry 3 https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
+          curl -fL --retry 3 https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-linux-64.zip -o ffmpeg.zip
+          unzip -o ffmpeg.zip
+          rm -f ffmpeg.zip
+          curl -fL --retry 3 https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-linux-64.zip -o ffprobe.zip
+          unzip -o ffprobe.zip
+          rm -f ffprobe.zip
           chmod +x yt-dlp ffmpeg ffprobe
 
       - name: Prepare binaries (macOS)
         if: runner.os == 'macOS'
         run: |
-          if [ ! -f yt-dlp ]; then
-            curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o yt-dlp
-          fi
-          if [ ! -f ffmpeg ] || [ ! -f ffprobe ]; then
-            curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-osx-64.zip -o ffmpeg.zip
-            unzip -o ffmpeg.zip
-            curl -L https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-osx-64.zip -o ffprobe.zip
-            unzip -o ffprobe.zip
-            rm -f ffmpeg.zip ffprobe.zip
-          fi
+          set -euo pipefail
+          curl -fL --retry 3 https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o yt-dlp
+          curl -fL --retry 3 https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-osx-64.zip -o ffmpeg.zip
+          unzip -o ffmpeg.zip
+          rm -f ffmpeg.zip
+          curl -fL --retry 3 https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffprobe-4.4.1-osx-64.zip -o ffprobe.zip
+          unzip -o ffprobe.zip
+          rm -f ffprobe.zip
           chmod +x yt-dlp ffmpeg ffprobe
 
       - name: Build with Nuitka (Windows)
@@ -282,7 +275,12 @@ jobs:
         id: meta
         run: |
           VERSION=$(python3 -c "import re; content = open('constants.py', encoding='utf-8').read(); print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', content).group(1))")
-          echo "tag_name=v$VERSION" >> $GITHUB_OUTPUT
+          TAG_NAME="v$VERSION"
+          if [ "$GITHUB_REF_TYPE" != "tag" ] || [ "$GITHUB_REF_NAME" != "$TAG_NAME" ]; then
+            echo "Release tag '$GITHUB_REF_NAME' must match constants.py version '$TAG_NAME'." >&2
+            exit 1
+          fi
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
