@@ -7,12 +7,13 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 from utils.binary_resolver import resolve_yt_dlp_command, resolve_ffmpeg_command, resolve_ffprobe_command, is_ffmpeg_usable
-from utils.logger import write_error_log
+from utils.logger import logger, write_download_debug_log, write_error_log
+from utils.parser import build_ytdlp_args
 
 class DownloadThread(QThread):
     progress = Signal(int)
     detail = Signal(str)
-    finished = Signal(str)
+    download_completed = Signal(str)
 
     def __init__(self, url, folder, cfg):
         super().__init__()
@@ -25,6 +26,10 @@ class DownloadThread(QThread):
         self._existing_webps = set()
         self._run_started_ts = None
         self._current_title = ""
+        self._final_path = None
+        self._output_paths = []
+        self._already_downloaded = False
+        self._status = "pending"  # "success" / "skipped" / "cancelled" / "failed"
 
     def _track_thumbnail_webp(self, line: str):
         if not self.cfg.get("embed_thumbnail", False):
@@ -87,129 +92,180 @@ class DownloadThread(QThread):
             except Exception:
                 pass
 
-    def run(self):
-        template = self.cfg.get("template", "%(title)s")
-        yt_cmd = resolve_yt_dlp_command()
-        if yt_cmd is None:
-            self.finished.emit("yt-dlp が見つかりません。")
-            return
-        ffmpeg_cmd = resolve_ffmpeg_command()
-        ffprobe_cmd = resolve_ffprobe_command()
-        ffmpeg_ok = is_ffmpeg_usable(ffmpeg_cmd) if ffmpeg_cmd else False
-        ffprobe_ok = bool(ffprobe_cmd)
+    def _report_failure(self, section: str, reason: str, details: dict):
+        self._status = "failed"
+        values = {
+            "reason": reason,
+            "url": self.url,
+            "download_folder": self.folder,
+            "download_folder_exists": Path(self.folder).is_dir(),
+            "format": self.cfg.get("format", "mp4"),
+            "video_quality": self.cfg.get("video_quality", "Best"),
+            "video_fps": self.cfg.get("video_fps", "Any"),
+            "audio_quality": self.cfg.get("audio_quality", "0"),
+            "cookies_browser": self.cfg.get("cookies_browser", "none"),
+            "embed_thumbnail": self.cfg.get("embed_thumbnail", False),
+            "embed_subtitles": self.cfg.get("embed_subtitles", False),
+            "time_range_start": self.cfg.get("time_range_start"),
+            "time_range_end": self.cfg.get("time_range_end"),
+        }
+        values.update(details)
 
-        args = yt_cmd + [
-            "-P", self.folder, "-o", f"{template}.%(ext)s",
-            "--newline",
-            "--progress-template", "download:%(progress._percent_str)s|%(progress.eta)s|%(info.title)s"
-        ]
-        playlist_items = str(self.cfg.get("playlist_items", "") or "").strip()
-        if playlist_items:
-            args += ["--playlist-items", playlist_items]
-        order_mode = str(self.cfg.get("playlist_order_mode", "default"))
-        if order_mode == "latest":
-            args += ["--playlist-reverse"]
-        elif order_mode == "popular":
-            args += ["--playlist-sorting", "view_count"]
-        elif order_mode == "oldest":
-            args += ["--playlist-reverse"]
-        elif self.cfg.get("playlist_reverse", False) and not playlist_items:
-            args += ["--playlist-reverse"]
-        if self.cfg.get("disable_playlist_thumbnail", False):
-            args += ["-o", "pl_thumbnail:"]
-        if ffmpeg_ok:
-            args += ["--ffmpeg-location", str(Path(ffmpeg_cmd).parent)]
-
-        # Cookies setting
-        cookies_browser = self.cfg.get("cookies_browser", "none")
-        if cookies_browser and cookies_browser != "none":
-            args += ["--cookies-from-browser", cookies_browser]
-
-        out_format = self.cfg.get("format", "mp4")
-        if out_format == "mp3":
-            if not ffmpeg_ok:
-                self.finished.emit("MP3変換には ffmpeg が必要です。ffmpeg.exe をアプリと同じフォルダに配置してください。")
-                return
-            audio_quality = str(self.cfg.get("audio_quality", "0")).strip()
-            if not re.fullmatch(r"\d+(?:\.\d+)?", audio_quality):
-                audio_quality = "0"
-            args += ["-x", "--audio-format", "mp3", "--audio-quality", audio_quality]
-        elif out_format == "wav":
-            if not ffmpeg_ok:
-                self.finished.emit("WAV変換には ffmpeg が必要です。ffmpeg.exe をアプリと同じフォルダに配置してください。")
-                return
-            args += ["-x", "--audio-format", "wav"]
-        elif out_format == "m4a":
-            if not ffmpeg_ok:
-                self.finished.emit("M4A変換には ffmpeg が必要です。ffmpeg.exe をアプリと同じフォルダに配置してください。")
-                return
-            args += ["-x", "--audio-format", "m4a"]
-        else:
-            if not ffmpeg_ok:
-                self.finished.emit("高画質MP4の結合には ffmpeg が必要です。ffmpeg.exe をアプリと同じフォルダに配置してください。")
-                return
-            quality = self.cfg.get("video_quality", "Best")
-            fps = self.cfg.get("video_fps", "Any")
-
-            video_selector = "bv*"
-            if quality and quality != "Best":
-                h = quality.replace("p", "")
-                if h.isdigit():
-                    video_selector += f"[height<={h}]"
-            if fps and fps != "Any" and str(fps).isdigit():
-                video_selector += f"[fps<={fps}]"
-
-            format_selector = f"{video_selector}+ba[acodec*=mp4a]/{video_selector}+ba[ext=m4a]/{video_selector}+ba/b[ext=mp4]/b"
-
-            args += ["-f", format_selector,
-                     "--format-sort", "res,fps,vcodec:avc",
-                     "--merge-output-format", "mp4"]
-            
-            if self.cfg.get("embed_thumbnail", False) and ffprobe_ok:
-                args += ["--write-thumbnail", "--embed-thumbnail"]
-            
-            if self.cfg.get("embed_subtitles", False):
-                args += ["--embed-subs"]
-
-        start_sec = self.cfg.get("time_range_start")
-        end_sec = self.cfg.get("time_range_end")
-        if start_sec is not None and end_sec is not None:
-            args += ["--download-sections", f"*{start_sec}-{end_sec}", "--force-keyframes-at-cuts"]
-
-        args.append(self.url)
+        app_log_path = ""
+        try:
+            app_log_path = write_error_log(section, values, prefix=section)
+        except Exception:
+            logger.exception("Failed to write download failure to application log")
 
         try:
-            output_tail = []
+            debug_log_path = write_download_debug_log(section, values)
+            message = f"{reason}\nデバッグログ: {debug_log_path}"
+        except Exception:
+            logger.exception("Failed to save download debug log")
+            if app_log_path:
+                message = f"{reason}\nデバッグログを保存できませんでした。通常ログ: {app_log_path}"
+            else:
+                message = f"{reason}\nデバッグログと通常ログの保存に失敗しました。"
+
+        self.download_completed.emit(message)
+
+    def run(self):
+        output_tail = []
+        output_line_count = 0
+        args = []
+        yt_cmd = None
+        ffmpeg_cmd = None
+        ffprobe_cmd = None
+        ffmpeg_ok = False
+        ffprobe_ok = False
+
+        try:
+            yt_cmd = resolve_yt_dlp_command()
+            if yt_cmd is None:
+                self._report_failure(
+                    "download_prerequisite_error",
+                    "yt-dlp が見つかりません。",
+                    {"yt_dlp_command": None},
+                )
+                return
+
+            ffmpeg_cmd = resolve_ffmpeg_command()
+            ffprobe_cmd = resolve_ffprobe_command()
+            ffmpeg_ok = is_ffmpeg_usable(ffmpeg_cmd) if ffmpeg_cmd else False
+            ffprobe_ok = bool(ffprobe_cmd)
+
+            out_format = self.cfg.get("format", "mp4")
+            if out_format in ("mp3", "wav", "m4a", "mp4") and not ffmpeg_ok:
+                format_names = {
+                    "mp3": "MP3",
+                    "wav": "WAV",
+                    "m4a": "M4A",
+                    "mp4": "高画質MP4",
+                }
+                self._report_failure(
+                    "download_prerequisite_error",
+                    f"{format_names[out_format]}のダウンロードには ffmpeg が必要です。"
+                    "ffmpeg.exe をアプリと同じフォルダに配置してください。",
+                    {
+                        "yt_dlp_command": yt_cmd,
+                        "ffmpeg_command": ffmpeg_cmd,
+                        "ffmpeg_usable": ffmpeg_ok,
+                    },
+                )
+                return
+
+            args = build_ytdlp_args(
+                yt_cmd,
+                self.url,
+                self.folder,
+                self.cfg,
+                ffmpeg_path=ffmpeg_cmd,
+                ffprobe_path=ffprobe_cmd,
+            )
+
             if self.cfg.get("embed_thumbnail", False):
                 self._snapshot_existing_webps()
                 self._run_started_ts = time.time()
+
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONUTF8"] = "1"
 
             self.process = subprocess.Popen(
                 args,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
-                errors="replace",
-                bufsize=1,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                text=False,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                env=env
             )
 
-            for line in iter(self.process.stdout.readline, ''):
-                if self._stopped:
+            while not self._stopped:
+                line_bytes = self.process.stdout.readline()
+                if not line_bytes:
                     break
+
+                try:
+                    line = line_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    try:
+                        line = line_bytes.decode("cp932")
+                    except UnicodeDecodeError:
+                        line = line_bytes.decode("utf-8", errors="replace")
+
                 line = line.strip()
-                if line:
-                    output_tail.append(line)
-                    if len(output_tail) > 60:
-                        output_tail = output_tail[-60:]
+                if not line:
+                    continue
+                output_tail.append(line)
+                output_line_count += 1
+                if len(output_tail) > 200:
+                    output_tail = output_tail[-200:]
                 self._track_thumbnail_webp(line)
+                if line.startswith("title:"):
+                    self._current_title = line.split("title:", 1)[1].strip()
+                    continue
+
+                if line.startswith("FILEPATH:"):
+                    raw_path = line.split(":", 1)[1].strip()
+                    if raw_path:
+                        output_path = Path(raw_path)
+                        if not output_path.is_absolute():
+                            output_path = Path(self.folder) / output_path
+                        output_path = output_path.resolve()
+                        self._output_paths.append(str(output_path))
+                        self._final_path = str(output_path)
+
                 if line.startswith("[download] Destination:"):
                     raw_name = line.split("Destination:", 1)[1].strip()
                     if raw_name:
-                        stem = Path(raw_name).stem
+                        p = Path(raw_name)
+                        if not p.is_absolute():
+                            p = Path(self.folder) / p
+                        self._final_path = str(p.absolute())
+
+                        stem = p.stem
                         stem = re.sub(r'\.f\d+$', '', stem)
                         if not (stem.startswith("f") and stem[1:].isdigit() and len(stem) <= 5):
                             self._current_title = stem
+                if line.startswith("[ffmpeg] Merging formats into"):
+                    m = re.search(r'Merging formats into "(.+?)"', line)
+                    if m:
+                        raw_name = m.group(1)
+                        p = Path(raw_name)
+                        if not p.is_absolute():
+                            p = Path(self.folder) / p
+                        self._final_path = str(p.absolute())
+                if "has already been downloaded" in line:
+                    self._already_downloaded = True
+                    m = re.search(r'\[download\]\s+(.+?)\s+has already been downloaded', line)
+                    if m:
+                        raw_name = m.group(1).strip()
+                        p = Path(raw_name)
+                        if not p.is_absolute():
+                            p = Path(self.folder) / p
+                        self._final_path = str(p.absolute())
+                        if not self._current_title:
+                            self._current_title = p.stem
                 if line.startswith("download:"):
                     parts = line.split(":", 1)[1].split("|", 2)
                     if len(parts) >= 3:
@@ -240,44 +296,83 @@ class DownloadThread(QThread):
 
             self.process.wait()
             if not self._stopped and self.process.returncode == 0:
+                candidate_paths = self._output_paths[:]
+                if (
+                    not candidate_paths
+                    and self._already_downloaded
+                    and self._final_path
+                ):
+                    candidate_paths.append(self._final_path)
+                existing_output_paths = [
+                    path for path in candidate_paths
+                    if Path(path).is_file() and Path(path).stat().st_size > 0
+                ]
+                if not existing_output_paths:
+                    self._report_failure(
+                        "download_no_output",
+                        "yt-dlp は正常終了しましたが、動画ファイルを確認できませんでした。",
+                        {
+                            "yt_dlp_command": yt_cmd,
+                            "command": args,
+                            "ffmpeg_cmd": ffmpeg_cmd or "",
+                            "ffprobe_cmd": ffprobe_cmd or "",
+                            "ffmpeg_usable": ffmpeg_ok,
+                            "ffprobe_usable": ffprobe_ok,
+                            "returncode": self.process.returncode,
+                            "reported_output_paths": self._output_paths,
+                            "checked_output_paths": candidate_paths,
+                            "output_line_count": output_line_count,
+                            "output_tail": output_tail,
+                        },
+                    )
+                    return
+                self._final_path = existing_output_paths[-1]
                 if self.cfg.get("embed_thumbnail", False):
                     self._cleanup_thumbnail_webps()
                     self._cleanup_new_webps()
                 self.progress.emit(100)
-                self.finished.emit("ダウンロードが完了しました")
+                if self._already_downloaded:
+                    self._status = "skipped"
+                    msg = "同名ファイルが存在するため、ダウンロードはキャンセルされました"
+                else:
+                    self._status = "success"
+                    msg = "ダウンロードが完了しました"
+                self.download_completed.emit(msg)
             elif self._stopped:
-                self.finished.emit("ダウンロードはキャンセルされました")
+                self._status = "cancelled"
+                self.download_completed.emit("ダウンロードはキャンセルされました")
             else:
-                log_path = write_error_log(
+                self._report_failure(
                     "download_error",
+                    "ダウンロードに失敗しました。",
                     {
-                        "url": self.url,
-                        "folder": self.folder,
+                        "yt_dlp_command": yt_cmd,
+                        "command": args,
                         "ffmpeg_cmd": ffmpeg_cmd or "",
                         "ffprobe_cmd": ffprobe_cmd or "",
                         "ffmpeg_usable": ffmpeg_ok,
                         "ffprobe_usable": ffprobe_ok,
                         "returncode": self.process.returncode if self.process else "unknown",
-                        "command": " ".join(args),
-                        "output_tail": "\n".join(output_tail),
+                        "reported_output_paths": self._output_paths,
+                        "output_line_count": output_line_count,
+                        "output_tail": output_tail,
                     },
-                    prefix="download_error",
                 )
-                self.finished.emit(f"エラーが発生しました。\nログ: {log_path}")
 
         except Exception as e:
-            log_path = write_error_log(
+            self._report_failure(
                 "download_exception",
+                f"ダウンロード実行中にエラーが発生しました: {e}",
                 {
-                    "url": self.url,
-                    "folder": self.folder,
+                    "yt_dlp_command": yt_cmd,
+                    "command": args,
                     "ffmpeg_cmd": ffmpeg_cmd or "",
                     "ffprobe_cmd": ffprobe_cmd or "",
-                    "ffmpeg_usable": ffmpeg_ok if "ffmpeg_ok" in locals() else False,
-                    "ffprobe_usable": ffprobe_ok if "ffprobe_ok" in locals() else False,
+                "ffmpeg_usable": ffmpeg_ok,
+                "ffprobe_usable": ffprobe_ok,
                     "error": repr(e),
-                    "command": " ".join(args) if "args" in locals() else "",
+                    "traceback": traceback.format_exc(),
+                    "output_line_count": output_line_count,
+                    "output_tail": output_tail,
                 },
-                prefix="download_exception",
             )
-            self.finished.emit(f"実行エラー: {e}\nログ: {log_path}")

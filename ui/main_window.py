@@ -5,12 +5,13 @@ import json
 import time
 import subprocess
 import traceback
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QProgressBar, QFileDialog, QMessageBox, QFrame, QSizePolicy,
-    QApplication, QMenu, QComboBox
+    QApplication, QMenu, QComboBox, QDialog, QCheckBox
 )
 from PySide6.QtCore import Qt, QUrl, QTimer, QThread, QRect, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QIcon, QAction, QDesktopServices, QCursor, QFontDatabase, QColor, QPalette
@@ -18,9 +19,9 @@ from PySide6.QtGui import QIcon, QAction, QDesktopServices, QCursor, QFontDataba
 from constants import (
     VERSION, APP_GITHUB_REPO_URL, APP_DISPLAY_NAME, get_runtime_app_dir
 )
-from utils.logger import logger, get_log_dir, write_error_log
+from utils.logger import logger, get_log_dir, write_download_debug_log, write_error_log
 from utils.system import resolve_app_icon_path, qt_message_filter
-from utils.formatting import parse_time_range
+from utils.formatting import parse_time_range, tail_text
 from utils.binary_resolver import resolve_yt_dlp_command
 
 from core.config_manager import load_config, save_config, save_history, load_history
@@ -34,9 +35,11 @@ from ui.components import FocusClearLineEdit
 from ui.dialogs import Settings, LogViewerDialog, PlaylistSelectDialog, HistoryDialog
 from ui.report_dialog import ErrorReportDialog
 from threads.downloader import DownloadThread
+from threads.thumbnail_fetcher import ThumbnailFetchThread
 from threads.updaters import (
     YtDlpUpdateThread, YtDlpCheckThread, AppUpdateThread, BinariesEnsureThread
 )
+from utils.notifier import notify_download_complete
 
 class Main(QWidget):
     def is_english(self) -> bool:
@@ -89,17 +92,22 @@ class Main(QWidget):
         self.btn_theme.setText(self.theme_button_text(self.cfg.get("theme", "dark")))
         self.btn_mini.setText("M" if self.is_mini_mode else "Mini")
         self.lbl_url.setText(self.t("main.video_url", "Video URL"))
-        self.lbl_time.setText(self.t("main.time_range", "Time Range"))
+        self.lbl_trim.setText(self.t("main.time_range", "Time Range"))
         self.lbl_folder.setText(self.t("main.output_folder", "Output Folder"))
         self.url.setPlaceholderText(self.t("main.url_placeholder", "Paste link here..."))
-        self.time_range.setPlaceholderText(self.t("main.time_placeholder", "e.g. 0:00~0:15"))
         self.btn_paste.setText(self.t("main.paste", "Paste"))
         self.btn_browse.setText(self.t("main.browse", "Browse"))
         self.btn_dl.setText(self.t("main.start_download", "Start Download"))
         self.btn_settings.setText(self.t("main.settings", "Settings"))
         self.btn_update_ytdlp.setText(self.t("main.update_ytdlp", "Update yt-dlp"))
         self.btn_report.setText(self.t("main.bug_report", "不具合報告"))
+        self.btn_history.setText(self.t("main.history", "履歴"))
         self.media_quality_label.setText(self.t("main.video_quality", "Video Quality"))
+        self.trim_checkbox.setText(self.t("main.trim_enable", "Enable trimming (cutting)"))
+        self.trim_start.setPlaceholderText(self.t("main.trim_start_placeholder", "Start (e.g. 0:00)"))
+        self.lbl_end_placeholder = self.t("main.trim_end_placeholder", "End (e.g. 0:15)") # 保管用
+        self.trim_end.setPlaceholderText(self.lbl_end_placeholder)
+        
         self.set_ytdlp_status(self.ytdlp_version, self.ytdlp_state)
         self.set_app_status(self.app_state, self.app_current_version, self.app_latest_version)
 
@@ -161,6 +169,10 @@ class Main(QWidget):
         self.updater = None
         self.startup_updater = None
         self.app_updater = None
+        self.thumbnail_thread = None
+        self._thumbnail_debounce_timer = None
+        self._active_thumbnail_threads = set()
+        self._last_thumbnail_url = ""
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -221,6 +233,30 @@ class Main(QWidget):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(title)
 
+        # サムネイルプレビュー
+        self.thumbnail_container = QFrame()
+        self.thumbnail_container.setObjectName("ThumbnailContainer")
+        self.thumbnail_container.setVisible(False)
+        thumb_layout = QHBoxLayout(self.thumbnail_container)
+        thumb_layout.setContentsMargins(0, 4, 0, 4)
+        thumb_layout.setSpacing(12)
+
+        self.thumbnail_label = QLabel()
+        self.thumbnail_label.setObjectName("ThumbnailImage")
+        self.thumbnail_label.setFixedSize(128, 72)
+        self.thumbnail_label.setScaledContents(False)
+        self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.thumbnail_label.setStyleSheet("border-radius: 6px; background: #2c2c2e;")
+        thumb_layout.addWidget(self.thumbnail_label)
+
+        self.thumbnail_title_label = QLabel("")
+        self.thumbnail_title_label.setObjectName("ThumbnailTitle")
+        self.thumbnail_title_label.setWordWrap(True)
+        self.thumbnail_title_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        thumb_layout.addWidget(self.thumbnail_title_label, 1)
+
+        card_layout.addWidget(self.thumbnail_container)
+
         # URL入力
         self.lbl_url = QLabel("動画URL")
         card_layout.addWidget(self.lbl_url)
@@ -229,6 +265,7 @@ class Main(QWidget):
         self.url = FocusClearLineEdit()
         self.url.setPlaceholderText("ここにリンクを貼り付け...")
         self.url.setFixedHeight(40)
+        self.url.textChanged.connect(self._on_url_text_changed)
         self.btn_paste = QPushButton("ペースト")
         self.btn_paste.setFixedWidth(90)
         self.btn_paste.setMinimumHeight(38)
@@ -238,13 +275,48 @@ class Main(QWidget):
         url_layout.addWidget(self.btn_paste)
         card_layout.addLayout(url_layout)
 
-        self.lbl_time = QLabel("時間指定")
-        card_layout.addWidget(self.lbl_time)
-        self.time_range = FocusClearLineEdit()
-        self.time_range.setPlaceholderText("例: 0:00~0:15")
-        self.time_range.setText(self.cfg.get("time_range_input", ""))
-        self.time_range.setFixedHeight(40)
-        card_layout.addWidget(self.time_range)
+        # 時間指定(トリミング)
+        trim_group_layout = QVBoxLayout()
+        trim_group_layout.setSpacing(4)
+        
+        self.lbl_trim = QLabel("時間指定")
+        trim_group_layout.addWidget(self.lbl_trim)
+        
+        self.trim_checkbox = QCheckBox("トリミング（カット）を有効にする")
+        self.trim_checkbox.setObjectName("TrimCheckBox")
+        self.trim_checkbox.setChecked(self.cfg.get("trim_enabled", False))
+        trim_group_layout.addWidget(self.trim_checkbox)
+
+        trim_inputs_layout = QHBoxLayout()
+        trim_inputs_layout.setSpacing(8)
+        
+        self.trim_start = FocusClearLineEdit()
+        self.trim_start.setPlaceholderText("開始 (例 0:00)")
+        self.trim_start.setText(self.cfg.get("trim_start", "0:00"))
+        self.trim_start.setFixedHeight(34)
+        
+        self.trim_end = FocusClearLineEdit()
+        self.trim_end.setPlaceholderText("終了 (例 0:15)")
+        self.trim_end.setText(self.cfg.get("trim_end", ""))
+        self.trim_end.setFixedHeight(34)
+        
+        self.lbl_to = QLabel("～")
+        self.lbl_to.setFixedWidth(15)
+        self.lbl_to.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        trim_inputs_layout.addWidget(self.trim_start, 1)
+        trim_inputs_layout.addWidget(self.lbl_to)
+        trim_inputs_layout.addWidget(self.trim_end, 1)
+        
+        trim_group_layout.addLayout(trim_inputs_layout)
+        card_layout.addLayout(trim_group_layout)
+
+        self.trim_checkbox.toggled.connect(self.on_trim_settings_changed)
+        self.trim_start.textChanged.connect(self.on_trim_settings_changed)
+        self.trim_end.textChanged.connect(self.on_trim_settings_changed)
+        
+        # 初期状態の同期
+        self._update_trim_ui_state(self.trim_checkbox.isChecked())
 
         # 保存先
         self.lbl_folder = QLabel("保存先フォルダ")
@@ -389,6 +461,7 @@ class Main(QWidget):
                 def run(self):
                     ErrorReport() # インスタンス化するだけでキャッシュが作成される
             self.report_preload_thread = PreloadThread()
+            self.report_preload_thread.finished.connect(self.report_preload_thread.deleteLater)
             self.report_preload_thread.start()
         except Exception:
             pass
@@ -486,6 +559,19 @@ class Main(QWidget):
         self._apply_messagebox_theme(box)
         box.exec()
 
+    def _show_download_error_with_log(self, title: str, section: str,
+                                     reason: str, details: dict, log_reason=None):
+        try:
+            log_path = write_download_debug_log(
+                section,
+                {**details, "reason": log_reason or reason},
+            )
+            message = f"{reason}\nデバッグログ: {log_path}"
+        except Exception:
+            logger.exception("Failed to save download debug log")
+            message = f"{reason}\nデバッグログを保存できませんでした。"
+        self._show_warning(title, message)
+
     def open_settings(self):
         prev_lang = str(self.cfg.get("language", "ja"))
         dlg = Settings(self)
@@ -495,7 +581,7 @@ class Main(QWidget):
             self.apply_language_texts()
             self.update_dev_tools_visibility()
             if str(self.cfg.get("language", "ja")) != prev_lang:
-                self._show_info("Language", "Language setting updated.")
+                self._show_info(self.t("main.language_updated_title", "言語"), self.t("main.language_updated_msg", "言語設定を更新しました。"))
 
     def update_dev_tools_visibility(self):
         is_dev = self.cfg.get("developer_mode", False)
@@ -514,6 +600,110 @@ class Main(QWidget):
         self.url.setText(raw)
         self.url.setCursorPosition(0)
 
+    def _on_url_text_changed(self, text: str):
+        """URL入力欄のテキストが変更されたときにデバウンス付きでサムネイル取得を開始"""
+        url = (text or "").strip()
+
+        # URLが空の場合はサムネイルを非表示
+        if not url:
+            self._hide_thumbnail()
+            return
+
+        # YouTube URLかどうかを簡易チェック
+        if not self._is_youtube_url(url):
+            self._hide_thumbnail()
+            return
+
+        # デバウンス: 1秒間入力がなかったら取得開始
+        if self._thumbnail_debounce_timer is not None:
+            self._thumbnail_debounce_timer.stop()
+        self._thumbnail_debounce_timer = QTimer(self)
+        self._thumbnail_debounce_timer.setSingleShot(True)
+        self._thumbnail_debounce_timer.timeout.connect(lambda: self._fetch_thumbnail(url))
+        self._thumbnail_debounce_timer.start(1000)
+
+    def _is_youtube_url(self, url: str) -> bool:
+        """YouTube URLかどうかを簡易チェック"""
+        lower = url.lower()
+        return any(domain in lower for domain in [
+            "youtube.com/", "youtu.be/", "music.youtube.com/"
+        ])
+
+    def _fetch_thumbnail(self, url: str):
+        """バックグラウンドでサムネイルを取得する"""
+        if not url or url == self._last_thumbnail_url:
+            return
+        
+        self._last_thumbnail_url = url
+
+        # 前回のスレッドが動いていたらGCで壊されないようにセットに退避させて停止を待つ
+        if self.thumbnail_thread is not None:
+            old_thread = self.thumbnail_thread
+            self._active_thumbnail_threads.add(old_thread)
+            # 完全に終了したときにセットから削除してメモリを解放
+            old_thread.finished.connect(lambda t=old_thread: self._active_thumbnail_threads.discard(t))
+            try:
+                old_thread.stop()
+            except Exception:
+                pass
+            self.thumbnail_thread = None
+
+        self.thumbnail_title_label.setText(self.t("main.fetching_info", "Fetching information..."))
+        self.thumbnail_container.setVisible(True)
+
+        self.thumbnail_thread = ThumbnailFetchThread(url, self.cfg)
+        self.thumbnail_thread.fetched.connect(self._on_thumbnail_fetched)
+        self.thumbnail_thread.failed.connect(self._on_thumbnail_failed)
+        # スレッドが終了したら確実に解放する
+        self.thumbnail_thread.finished.connect(self.thumbnail_thread.deleteLater)
+        self.thumbnail_thread.finished.connect(lambda t=self.thumbnail_thread: self._on_thumbnail_thread_finished(t))
+        self.thumbnail_thread.start()
+
+    def _on_thumbnail_thread_finished(self, thread):
+        """スレッド終了時に管理セットとメイン変数から参照を外す"""
+        self._active_thumbnail_threads.discard(thread)
+        if getattr(self, "thumbnail_thread", None) == thread:
+            self.thumbnail_thread = None
+
+    def _on_generic_thread_finished(self, thread, attr_name):
+        """スレッド終了時にメイン変数からの参照を外す（汎用版）"""
+        if getattr(self, attr_name, None) == thread:
+            setattr(self, attr_name, None)
+
+    def _on_thumbnail_fetched(self, title: str, pixmap):
+        """サムネイル取得成功時"""
+        from PySide6.QtGui import QPixmap
+        try:
+            # 画像を16:9のアスペクト比でスケーリング
+            scaled = pixmap.scaled(
+                128, 72,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.thumbnail_label.setPixmap(scaled)
+            self.thumbnail_title_label.setText(title)
+            self.thumbnail_container.setVisible(True)
+        except Exception:
+            self._hide_thumbnail()
+
+    def _on_thumbnail_failed(self):
+        """サムネイル取得失敗時"""
+        self.thumbnail_title_label.setText("サムネイルの取得に失敗しました")
+        # 3秒後に非表示にする
+        QTimer.singleShot(3000, self._hide_thumbnail)
+
+    def _hide_thumbnail(self):
+        """サムネイルプレビューを非表示にする"""
+        self.thumbnail_container.setVisible(False)
+        self.thumbnail_label.clear()
+        self.thumbnail_title_label.setText("")
+        # 実行中のスレッドも停止
+        if self.thumbnail_thread is not None:
+            try:
+                self.thumbnail_thread.stop()
+            except Exception:
+                pass
+
     def on_video_quality_changed(self, value):
         self.cfg["video_quality"] = value
         save_config(self.cfg)
@@ -521,6 +711,24 @@ class Main(QWidget):
     def on_video_fps_changed(self, *_):
         self.cfg["video_fps"] = self.fps_combo.currentData() or "Any"
         save_config(self.cfg)
+
+    def on_trim_settings_changed(self, *_):
+        enabled = self.trim_checkbox.isChecked()
+        self.cfg["trim_enabled"] = enabled
+        self.cfg["trim_start"] = self.trim_start.text().strip()
+        self.cfg["trim_end"] = self.trim_end.text().strip()
+        save_config(self.cfg)
+        self._update_trim_ui_state(enabled)
+
+    def _update_trim_ui_state(self, enabled: bool):
+        self.trim_start.setEnabled(enabled)
+        self.trim_end.setEnabled(enabled)
+        # Qt/QSSはopacityプロパティをサポートしないため、QGraphicsOpacityEffectで実現する
+        from PySide6.QtWidgets import QGraphicsOpacityEffect
+        for widget in (self.trim_start, self.trim_end):
+            effect = QGraphicsOpacityEffect(widget)
+            effect.setOpacity(1.0 if enabled else 0.4)
+            widget.setGraphicsEffect(effect)
 
     def on_audio_quality_changed(self, *_):
         self.cfg["audio_quality"] = self.audio_quality_combo.currentData() or "0"
@@ -608,6 +816,10 @@ class Main(QWidget):
 
         label = "チャンネル" if is_channel else "プレイリスト"
 
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
+
         try:
             proc = subprocess.run(
                 args,
@@ -618,6 +830,7 @@ class Main(QWidget):
                 errors="replace",
                 timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                env=env,
             )
         except Exception as e:
             return None, f"{label}取得に失敗しました。\n{e}", {}
@@ -705,9 +918,11 @@ class Main(QWidget):
 
         self.updater = YtDlpUpdateThread()
         # auto引数を引き継ぐためにlambdaを使用
-        self.updater.finished.connect(
+        self.updater.completed.connect(
             lambda ok, state, before, after, output: self.on_ytdlp_updated(ok, state, before, after, output, auto=auto)
         )
+        self.updater.finished.connect(self.updater.deleteLater)
+        self.updater.finished.connect(lambda t=self.updater: self._on_generic_thread_finished(t, "updater"))
         self.updater.start()
 
     def check_ytdlp_on_startup(self):
@@ -718,77 +933,13 @@ class Main(QWidget):
             return
 
         self.startup_updater = YtDlpCheckThread()
-        self.startup_updater.finished.connect(self.on_startup_ytdlp_checked)
+        self.startup_updater.completed.connect(self.on_startup_ytdlp_checked)
+        self.startup_updater.finished.connect(self.startup_updater.deleteLater)
+        self.startup_updater.finished.connect(lambda t=self.startup_updater: self._on_generic_thread_finished(t, "startup_updater"))
         self.startup_updater.start()
-
-    def check_app_update_on_startup(self):
-        self.start_app_update_check(interactive=True, suppress_latest_popup=True)
 
     def check_app_update_manually(self):
         self.start_app_update_check(interactive=True, suppress_latest_popup=False)
-
-    def start_app_update_check(self, interactive: bool, suppress_latest_popup: bool = False):
-        if self.app_updater is not None and self.app_updater.isRunning():
-            return
-
-        source_url = str(self.cfg.get("app_update_source_url", "") or APP_GITHUB_REPO_URL).strip()
-        if not source_url:
-            self.set_app_status("source_not_set", VERSION, VERSION)
-            if interactive:
-                self._show_info("アプリ更新", "GitHubリポジトリURLが未設定です。\nconfig.json の app_update_source_url にURLを設定してください。")
-            return
-
-        self.set_app_status("checking", VERSION, VERSION)
-        self.app_updater = AppUpdateThread(source_url)
-        self.app_updater.finished.connect(
-            lambda ok, state, current, latest, page_url, notes, published_at, installer_url:
-            self.on_app_update_finished(ok, state, current, latest, page_url, notes, published_at, installer_url, interactive, suppress_latest_popup)
-        )
-        self.app_updater.start()
-
-    def on_app_update_finished(self, ok: bool, state: str, current_version: str, latest_version: str, release_page_url: str, notes: str, published_at: str, installer_url: str, interactive: bool, suppress_latest_popup: bool):
-        version_display = latest_version or current_version
-
-        if not ok:
-            self.set_app_status("failed", version_display, version_display)
-            if interactive:
-                reason = (notes or "").strip() or "不明なエラー"
-                self._show_warning("更新", f"更新確認に失敗しました。\n\n理由: {reason}")
-            return
-
-        if state == "update_available":
-            self.set_app_status("update_available", current_version, latest_version)
-            notes_text = notes or "更新内容は取得できませんでした。"
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Icon.Information)
-            msg.setWindowTitle("更新")
-            msg.setMinimumWidth(460)
-            msg.setText(f"更新通知\nアプリ更新があります。\n現在: {current_version}\n最新: {latest_version}")
-            msg.setInformativeText(f"更新内容:\n{notes_text}")
-            self._apply_messagebox_theme(msg)
-            
-            # --- 「自動更新」ボタンの作成(auto_btn)を削除 ---
-            open_btn = None
-            if release_page_url:
-                open_btn = msg.addButton("ページを開く", QMessageBox.ButtonRole.AcceptRole)
-            
-            msg.addButton("閉じる", QMessageBox.ButtonRole.RejectRole)
-            msg.exec()
-            
-            clicked = msg.clickedButton()
-            if open_btn is not None and clicked == open_btn:
-                QDesktopServices.openUrl(QUrl(release_page_url))
-            return
-
-        self.set_app_status("up_to_date", current_version, current_version)
-        if interactive and not suppress_latest_popup:
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Icon.Information)
-            msg.setWindowTitle("更新")
-            msg.setMinimumWidth(420)
-            msg.setText(f"更新通知\n{current_version} は最新です。")
-            self._apply_messagebox_theme(msg)
-            msg.exec()
 
     def set_ytdlp_status(self, version: str, state: str):
         if not hasattr(self, "ytdlp_status_label"):
@@ -893,10 +1044,12 @@ class Main(QWidget):
 
         self.set_app_status("checking", VERSION, VERSION)
         self.app_updater = AppUpdateThread(source_url)
-        self.app_updater.finished.connect(
+        self.app_updater.completed.connect(
             lambda ok, state, current, latest, page_url, notes, published_at, installer_url:
             self.on_app_update_finished(ok, state, current, latest, page_url, notes, published_at, installer_url, interactive, suppress_latest_popup)
         )
+        self.app_updater.finished.connect(self.app_updater.deleteLater)
+        self.app_updater.finished.connect(lambda t=self.app_updater: self._on_generic_thread_finished(t, "app_updater"))
         self.app_updater.start()
 
     def on_app_update_finished(self, ok: bool, state: str, current_version: str, latest_version: str, release_page_url: str, notes: str, published_at: str, installer_url: str, interactive: bool, suppress_latest_popup: bool):
@@ -944,9 +1097,12 @@ class Main(QWidget):
 
     def start(self):
         # Toggle: if a download is running, cancel it
-        if self.download_thread is not None and self.download_thread.isRunning():
-            self.cancel_download()
-            return
+        try:
+            if self.download_thread is not None and self.download_thread.isRunning():
+                self.cancel_download()
+                return
+        except RuntimeError:
+            self.download_thread = None
 
         url = self.url.text().strip()
         if url.lower().startswith("ttps://"):
@@ -959,57 +1115,165 @@ class Main(QWidget):
             self._show_warning("入力エラー", "YouTube URLを入力してください。")
             return
 
-        # Check that yt-dlp is available
         if resolve_yt_dlp_command() is None:
-            self._show_warning("エラー", "yt-dlp が見つかりません。yt-dlp をインストールしてください。")
+            self._show_download_error_with_log(
+                "エラー",
+                "download_prerequisite_error",
+                "yt-dlp が見つかりません。yt-dlp をインストールしてください。",
+                {
+                    "url": url,
+                    "download_folder": self.path_display.text().strip(),
+                    "format": self.cfg.get("format", "mp4"),
+                    "yt_dlp_command": None,
+                },
+            )
             return
 
-        start_sec, end_sec, time_error = parse_time_range(self.time_range.text())
-        if time_error:
-            self._show_warning("時間指定エラー", time_error)
+        if self.trim_checkbox.isChecked():
+            start_val = self.trim_start.text().strip()
+            end_val = self.trim_end.text().strip()
+            if not start_val and not end_val:
+                start_sec, end_sec = None, None
+            else:
+                time_range_str = f"{start_val or '0:00'}~{end_val or '99:59:59'}"
+                start_sec, end_sec, time_error = parse_time_range(time_range_str)
+                if time_error:
+                    self._show_warning("時間指定エラー", time_error)
+                    return
+        else:
+            start_sec, end_sec = None, None
+
+        is_playlist_url = self._looks_like_playlist_url(url)
+        is_channel_url = self._looks_like_channel_url(url)
+        if is_channel_url:
+            url = self._normalize_channel_videos_url(url)
+
+        if is_playlist_url or is_channel_url:
+            # プレイリスト取得をバックグラウンドで実行してUIブロックを防ぐ
+            self.btn_dl.setEnabled(False)
+            self.btn_dl.setText(self.t("main.fetching_playlist", "プレイリスト取得中..."))
+            self.progress_detail_label.setText(self.t("main.fetching_playlist", "プレイリスト取得中..."))
+
+            _outer_self = self
+            _fetch_url = url
+            _fetch_is_channel = is_channel_url
+            _fetch_is_playlist = is_playlist_url
+            _fetch_cfg = dict(self.cfg)
+            _start_sec = start_sec
+            _end_sec = end_sec
+
+            class _PlaylistFetchThread(QThread):
+                fetched = Signal(list, str, dict)  # entries, error, meta
+
+                def run(self):
+                    try:
+                        entries, error, meta = _outer_self._fetch_playlist_entries(
+                            _fetch_url, limit=4000, order_mode="default"
+                        )
+                        self.fetched.emit(entries or [], error or "", meta or {})
+                    except Exception as e:
+                        self.fetched.emit([], str(e), {})
+
+            self._playlist_fetch_thread = _PlaylistFetchThread(self)
+            self._playlist_fetch_thread.fetched.connect(
+                lambda entries, error, meta: self._on_playlist_fetched(
+                    entries, error, meta,
+                    url=_fetch_url,
+                    is_channel_url=_fetch_is_channel,
+                    is_playlist_url=_fetch_is_playlist,
+                    start_sec=_start_sec,
+                    end_sec=_end_sec,
+                )
+            )
+            self._playlist_fetch_thread.finished.connect(self._playlist_fetch_thread.deleteLater)
+            self._playlist_fetch_thread.start()
+            return
+
+        # プレイリストなし → 直接ダウンロード開始
+        self._begin_download(
+            url=url,
+            is_playlist_url=False,
+            is_channel_url=False,
+            playlist_items="",
+            playlist_reverse=False,
+            playlist_order_mode="default",
+            start_sec=start_sec,
+            end_sec=end_sec,
+        )
+
+    def _on_playlist_fetched(self, entries, error, meta, *, url, is_channel_url,
+                             is_playlist_url, start_sec, end_sec):
+        """バックグラウンドでのプレイリスト取得完了後のUI処理"""
+        self.btn_dl.setEnabled(True)
+        self.btn_dl.setText(self.t("main.start_download", "Start Download"))
+        self.progress_detail_label.setText("")
+
+        if error:
+            log_error = error
+            proxy_url = str(self.cfg.get("proxy_url", "") or "").strip()
+            if proxy_url:
+                log_error = log_error.replace(proxy_url, "[REDACTED_PROXY]")
+            self._show_download_error_with_log(
+                "プレイリスト",
+                "playlist_fetch_error",
+                error,
+                {
+                    "url": url,
+                    "error": log_error,
+                    "is_playlist_url": is_playlist_url,
+                    "is_channel_url": is_channel_url,
+                    "time_range_start": start_sec,
+                    "time_range_end": end_sec,
+                    "cookies_browser": self.cfg.get("cookies_browser", "none"),
+                    "proxy_configured": bool(self.cfg.get("proxy_url")),
+                },
+                log_reason=log_error,
+            )
             return
 
         playlist_items = ""
         playlist_reverse = False
         playlist_order_mode = "default"
-        is_playlist_url = self._looks_like_playlist_url(url)
-        is_channel_url = self._looks_like_channel_url(url)
-        if is_channel_url:
-            url = self._normalize_channel_videos_url(url)
-        if is_playlist_url or is_channel_url:
-            entries, error, meta = self._fetch_playlist_entries(url, limit=4000, order_mode=playlist_order_mode)
-            if error:
-                self._show_warning("プレイリスト", error)
+
+        if entries:
+            source_label = "チャンネル" if is_channel_url and not is_playlist_url else "プレイリスト"
+            source_name = str((meta or {}).get("channel_name", "") or "") if is_channel_url and not is_playlist_url else ""
+            dlg = PlaylistSelectDialog(self, entries, source_label=source_label, source_name=source_name)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
-            elif entries:
-                source_label = "チャンネル" if is_channel_url and not is_playlist_url else "プレイリスト"
-                source_name = ""
-                if is_channel_url and not is_playlist_url:
-                    source_name = str((meta or {}).get("channel_name", "") or "")
-                dlg = PlaylistSelectDialog(self, entries, source_label=source_label, source_name=source_name)
-                if dlg.exec() != QDialog.DialogCode.Accepted:
+            if dlg.result_mode == "selected":
+                if not dlg.selected_indices:
+                    self._show_warning("プレイリスト", "動画が選択されていません。")
                     return
-                if dlg.result_mode == "selected":
-                    if not dlg.selected_indices:
-                        self._show_warning("プレイリスト", "動画が選択されていません。")
-                        return
-                    seen = set()
-                    ordered = []
-                    for idx in dlg.selected_indices:
-                        if idx in seen:
-                            continue
+                seen = set()
+                ordered = []
+                for idx in dlg.selected_indices:
+                    if idx not in seen:
                         seen.add(idx)
                         ordered.append(idx)
-                    playlist_items = ",".join(str(i) for i in ordered)
-                    playlist_reverse = False
-                    playlist_order_mode = dlg.order_mode
-                elif dlg.result_mode == "all":
-                    playlist_items = ""
-                    playlist_reverse = (dlg.order_mode == "oldest")
-                    playlist_order_mode = dlg.order_mode
-                else:
-                    return
+                playlist_items = ",".join(str(i) for i in ordered)
+                playlist_order_mode = dlg.order_mode
+            elif dlg.result_mode == "all":
+                playlist_reverse = (dlg.order_mode == "oldest")
+                playlist_order_mode = dlg.order_mode
+            else:
+                return
 
+        self._begin_download(
+            url=url,
+            is_playlist_url=is_playlist_url,
+            is_channel_url=is_channel_url,
+            playlist_items=playlist_items,
+            playlist_reverse=playlist_reverse,
+            playlist_order_mode=playlist_order_mode,
+            start_sec=start_sec,
+            end_sec=end_sec,
+        )
+
+    def _begin_download(self, *, url, is_playlist_url, is_channel_url,
+                        playlist_items, playlist_reverse, playlist_order_mode,
+                        start_sec, end_sec):
+        """実際のダウンロードスレッドを起動する"""
         self.btn_dl.setEnabled(True)
         self.btn_dl.setText("ダウンロード中... 0%")
         self.btn_update_ytdlp.setEnabled(False)
@@ -1017,7 +1281,9 @@ class Main(QWidget):
         cfg["video_quality"] = self.quality_combo.currentText()
         cfg["video_fps"] = self.fps_combo.currentData() or "Any"
         cfg["audio_quality"] = self.audio_quality_combo.currentData() or "0"
-        cfg["time_range_input"] = self.time_range.text().strip()
+        cfg["trim_enabled"] = self.trim_checkbox.isChecked()
+        cfg["trim_start"] = self.trim_start.text().strip()
+        cfg["trim_end"] = self.trim_end.text().strip()
         cfg["time_range_start"] = start_sec
         cfg["time_range_end"] = end_sec
         save_config(cfg)
@@ -1029,11 +1295,13 @@ class Main(QWidget):
         else:
             cfg.pop("playlist_items", None)
         download_folder = self.path_display.text().strip() or os.path.join(os.path.expanduser("~"), "Downloads")
+
         self.download_thread = DownloadThread(url, download_folder, cfg)
         self.download_thread.progress.connect(self.update_progress)
         self.download_thread.detail.connect(self.update_progress_detail)
-        self.download_thread.finished.connect(self.done)
+        self.download_thread.download_completed.connect(self.done)
         self.download_thread.finished.connect(self.on_download_thread_finished)
+        self.download_thread.finished.connect(self.download_thread.deleteLater)
         self.download_thread.start()
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -1068,6 +1336,12 @@ class Main(QWidget):
             pass
 
     def done(self, msg):
+        # finished シグナルと download_completed シグナルの競合を防ぐため、
+        # スレッドへの参照を先にローカル変数に退避する。
+        # on_download_thread_finished() が先に走って self.download_thread = None に
+        # なっても、thread 変数経由で安全にアクセスできる。
+        thread = self.download_thread
+
         self.btn_dl.setEnabled(True)
         self.btn_dl.setText("ダウンロードを開始")
         self.btn_update_ytdlp.setEnabled(True)
@@ -1077,28 +1351,92 @@ class Main(QWidget):
             self.progress_detail_label.setText("")
         self.progress_detail_enabled = True
 
-        if "完了" in msg and self.download_thread:
+        # DownloadThread の _status 属性で状態を判定（言語非依存）
+        # _status が無い場合は従来の日本語文字列フォールバックを使用
+        _status = getattr(thread, "_status", None) if thread else None
+        if _status is not None:
+            is_success   = (_status == "success")
+            is_skipped   = (_status == "skipped")
+            is_cancelled = (_status == "cancelled")
+        else:
+            # フォールバック: 従来の日本語文字列判定（DownloadThread未改修時）
+            is_success   = "完了" in msg
+            is_skipped   = "同名ファイル" in msg
+            is_cancelled = "キャンセルされました" in msg and not is_skipped
+
+        dl_title = ""
+        if thread:
+            dl_title = thread._current_title or ""
+
+        if (is_success or is_skipped) and thread:
             history = load_history()
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             entry = {
                 "timestamp": now,
-                "url": self.download_thread.url,
-                "title": self.download_thread._current_title or self.download_thread.url,
-                "folder": self.download_thread.folder
+                "url": thread.url,
+                "title": dl_title or thread.url,
+                "folder": thread.folder
             }
             history.append(entry)
             history = history[-1000:]
             save_history(history)
 
-        self._show_info("通知", msg)
+        # ウインドウ通知
+        try:
+            if is_cancelled:
+                return  # ユーザーキャンセル時は通知しない
+
+            if is_success:
+                heading = self.t("notification.download_complete_title", "Download Complete")
+                body_tmpl = self.t("notification.download_complete_body", "Download of '{title}' is complete.")
+                icon = QMessageBox.Icon.Information
+            elif is_skipped:
+                heading = self.t("notification.download_skipped_title", "Download Skipped")
+                body_tmpl = self.t("notification.download_skipped_body", "'{title}' already exists. Download skipped.")
+                icon = QMessageBox.Icon.Information
+            else:
+                heading = self.t("notification.download_failed_title", "Download Error")
+                body_tmpl = self.t("notification.download_failed_body", "An error occurred while downloading '{title}'.")
+                icon = QMessageBox.Icon.Warning
+
+            body = body_tmpl.format(title=dl_title or self.t("common.unknown", "Unknown"))
+
+            final_path = thread._final_path if (is_success or is_skipped) and thread else None
+
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle(heading)
+            msg_box.setText(body)
+            msg_box.setIcon(icon)
+            if thread:
+                msg_box.setInformativeText(
+                    f"保存先:\n{final_path or thread.folder}"
+                )
+
+            btn_open_file = None
+            btn_open_folder = None
+            if final_path and os.path.exists(final_path):
+                btn_open_file = msg_box.addButton(self.t("notification.open_file", "ファイルを開く"), QMessageBox.ButtonRole.ActionRole)
+                btn_open_folder = msg_box.addButton(self.t("notification.open_folder", "保存先フォルダを開く"), QMessageBox.ButtonRole.ActionRole)
+
+            msg_box.addButton(self.t("history.btn_close", "閉じる"), QMessageBox.ButtonRole.AcceptRole)
+            self._apply_messagebox_theme(msg_box)
+            msg_box.exec()
+
+            clicked = msg_box.clickedButton()
+            if btn_open_file and clicked == btn_open_file:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(final_path))
+            elif btn_open_folder and clicked == btn_open_folder:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(final_path)))
+
+        except Exception:
+            pass
 
     def on_download_thread_finished(self):
         if self.download_thread is None:
             return
-        if self.download_thread.isRunning():
-            self.download_thread.wait(3000)
-        self.download_thread = None
         self.progress_detail_enabled = True
+        # QtのdeleteLaterによって安全に解放されるため、Python側の参照をNoneにしても安全
+        self.download_thread = None
 
     def _stop_thread(self, thread, terminate_process: bool = False, wait_ms: int = 5000) -> bool:
         if thread is None:
@@ -1129,6 +1467,14 @@ class Main(QWidget):
             return False
 
     def closeEvent(self, event):
+        # サムネイルスレッドの停止
+        if self.thumbnail_thread is not None:
+            try:
+                self.thumbnail_thread.stop()
+                self.thumbnail_thread.wait(1000)
+            except Exception:
+                pass
+
         ok_download = self._stop_thread(self.download_thread, terminate_process=True, wait_ms=7000)
         ok_updater = self._stop_thread(self.updater, wait_ms=4000)
         ok_startup = self._stop_thread(self.startup_updater, wait_ms=4000)
@@ -1472,8 +1818,14 @@ class Main(QWidget):
             if title: title.setVisible(is_normal)
             
             self.lbl_url.setVisible(is_normal)
-            self.lbl_time.setVisible(is_normal)
-            self.time_range.setVisible(is_normal)
+            
+            # 新しいトリミングUIの制御
+            self.lbl_trim.setVisible(is_normal)
+            self.trim_checkbox.setVisible(is_normal)
+            self.trim_start.setVisible(is_normal)
+            self.trim_end.setVisible(is_normal)
+            self.lbl_to.setVisible(is_normal)
+            
             self.lbl_folder.setVisible(is_normal)
             self.path_display.setVisible(is_normal)
             self.btn_browse.setVisible(is_normal)
@@ -1525,4 +1877,3 @@ class Main(QWidget):
         if not keep_animating:
             self.is_animating = False
             self.btn_theme.setEnabled(True)
-

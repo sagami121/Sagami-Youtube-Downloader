@@ -42,3 +42,9 @@ logs/
 .env*
 
 legacy/
+
+
+*.js
+
+device_info_cache.json
+main_legacy.py

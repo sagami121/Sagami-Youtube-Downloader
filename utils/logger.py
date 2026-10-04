@@ -1,10 +1,12 @@
+import json
 import logging
-from logging.handlers import RotatingFileHandler
 import os
 import sys
+from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from constants import get_runtime_app_dir, get_config_path
+from constants import CONFIG_DIR_NAME, get_runtime_app_dir, get_config_path
 
 def setup_logger():
     # logging を出力する場所を決定
@@ -67,3 +69,22 @@ def write_error_log(section: str, values: dict, prefix: str = "error") -> str:
     
     # UIにログパスを返す仕様の後方互換維持
     return log_file_path
+
+def write_download_debug_log(section: str, values: dict) -> str:
+    """ダウンロード失敗の詳細をユーザー領域の個別ログに保存する"""
+    appdata = Path(os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+    log_dir = appdata / CONFIG_DIR_NAME / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    log_path = log_dir / f"download_debug_{timestamp}.log"
+    payload = {
+        "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "section": section,
+        "details": values,
+    }
+    with log_path.open("x", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
+        f.write("\n")
+
+    return str(log_path)

@@ -10,10 +10,21 @@ from core.theme_manager import apply_app_theme, get_theme_manager
 from ui.main_window import Main
 
 def main():
+    import os
+    if os.name == "nt":
+        try:
+            import ctypes
+            myappid = "com.sagami.youtubedownloader.app"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except Exception:
+            pass
+
     # Qtの内部メッセージをフィルタリング
     qInstallMessageHandler(qt_message_filter)
     
     app = QApplication(sys.argv)
+    app.setOrganizationName("Sagami")
+    app.setApplicationName("Sagami Youtube Downloader")
     
     try:
         # 起動時の設定とテーマの読み込み

@@ -61,6 +61,7 @@ python -m nuitka --standalone --disable-cache=all --assume-yes-for-downloads --e
 ## ログとバグ報告
 
 - エラー発生時は `logs` フォルダに詳細なログ (`app.log`) が自動生成されます。
+- 動画ダウンロードに失敗した場合は、`%APPDATA%\SagamiYoutubeDownloader\logs` に `download_debug_*.log` が保存され、画面に保存先が表示されます。入力URL、保存先パス、yt-dlpの出力などを含むため、共有前に内容を確認してください。
 - 不具合報告機能を通じて、エラー内容を送信できます（個人情報は収集されません）。
 
 ## ライセンス

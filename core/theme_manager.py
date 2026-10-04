@@ -20,7 +20,10 @@ class ThemeManager:
     def __init__(self):
         if not hasattr(self, 'initialized'):
             self._theme_css_cache = {}
-            self._theme_profile_cache = {}
+            # _theme_profile_cache: キー = theme名(str), 値 = (colors_dict, props_dict) のタプル専用
+            self._theme_profile_cache: dict[str, tuple[dict, dict]] = {}
+            # _theme_meta_cache: parse_theme_metadata 専用 (CSS MEDATATAブロック由来)
+            self._theme_meta_cache: dict[str, dict] = {}
             self._theme_info_cache = {}
             self._theme_options_cache = None
             self._theme_json_cache = {}
@@ -29,6 +32,7 @@ class ThemeManager:
     def refresh_cache(self):
         self._theme_css_cache.clear()
         self._theme_profile_cache.clear()
+        self._theme_meta_cache.clear()
         self._theme_info_cache.clear()
         self._theme_options_cache = None
         self._theme_json_cache.clear()
@@ -105,11 +109,11 @@ class ThemeManager:
 
     def parse_theme_metadata(self, theme="dark", widget_type="main"):
         theme_file, _json_path = self.resolve_theme_assets(str(theme))
-        
-        cache_key = f"{theme}:{widget_type}:meta"
-        if cache_key in self._theme_profile_cache:
-            cached = self._theme_profile_cache[cache_key]
-            return dict(cached) if isinstance(cached, dict) else {}
+
+        # _theme_meta_cache を使用（_theme_profile_cache との型混在を回避）
+        cache_key = f"{theme}:{widget_type}"
+        if cache_key in self._theme_meta_cache:
+            return dict(self._theme_meta_cache[cache_key])
 
         colors = {}
         if theme_file and theme_file.exists():
@@ -123,13 +127,17 @@ class ThemeManager:
                             colors[k.strip()] = v.strip()
             except Exception:
                 pass
-        self._theme_profile_cache[cache_key] = dict(colors)
+        self._theme_meta_cache[cache_key] = dict(colors)
         return colors
 
     def load_theme_profile(self, theme: str):
         if theme in self._theme_profile_cache:
-            colors, props = self._theme_profile_cache[theme]
-            return dict(colors), dict(props)
+            cached = self._theme_profile_cache[theme]
+            # 型安全ガード: タプル以外が入っていた場合はキャッシュ破棄して再取得
+            if isinstance(cached, tuple) and len(cached) == 2:
+                colors, props = cached
+                return dict(colors), dict(props)
+            del self._theme_profile_cache[theme]
         _css_path, json_path = self.resolve_theme_assets(str(theme))
         if json_path and json_path.exists():
             try:

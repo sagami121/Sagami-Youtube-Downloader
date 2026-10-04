@@ -178,7 +178,8 @@ class Settings(QDialog):
         layout.addWidget(save_btn)
 
         layout.addSpacing(6)
-        version_label = QLabel(f"Version: {VERSION}")
+        version_text = i18n(self.cfg, "settings.version", "Version:")
+        version_label = QLabel(f"{version_text} {VERSION}")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         version_label.setStyleSheet("color: #8e8e93; font-size: 10px;")
         layout.addWidget(version_label)
@@ -236,7 +237,7 @@ class Settings(QDialog):
         self.dev_section_widget.setVisible(is_developer)
         
         # バグ報告ボタン
-        self.btn_bug_report = QPushButton("不具合を報告する (Send Bug Report)")
+        self.btn_bug_report = QPushButton(i18n(self.cfg, "settings.bug_report", "不具合を報告する (Send Bug Report)"))
         self.btn_bug_report.setStyleSheet("color: #8e8e93; font-size: 11px; border: none; background: transparent; text-decoration: underline;")
         self.btn_bug_report.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_bug_report.clicked.connect(self.manual_report)
@@ -275,17 +276,18 @@ class Settings(QDialog):
 
     def show_theme_info(self):
         info = getattr(self, "_theme_info_cache", {}) or {}
+        title = i18n(self.cfg, "settings.theme_info_title", "テーマ情報")
         if not info:
-            QMessageBox.information(self, "テーマ情報", "このテーマの情報はありません。")
+            QMessageBox.information(self, title, i18n(self.cfg, "settings.theme_not_found", "このテーマの情報はありません。"))
             return
         parts = []
         if info.get("theme_name"):
-            parts.append(f"テーマ: {info.get('theme_name')}")
+            parts.append(f"{i18n(self.cfg, 'settings.theme_name_prefix', 'テーマ: ')}{info.get('theme_name')}")
         if info.get("author"):
-            parts.append(f"作者: {info.get('author')}")
+            parts.append(f"{i18n(self.cfg, 'settings.theme_author_prefix', '作者: ')}{info.get('author')}")
         if info.get("description"):
             parts.append(str(info.get("description")))
-        QMessageBox.information(self, "テーマ情報", "\n".join(parts))
+        QMessageBox.information(self, title, "\n".join(parts))
 
     def refresh_theme_list(self):
         get_theme_manager().refresh_cache()
@@ -609,9 +611,9 @@ class PlaylistSelectDialog(QDialog):
 class HistoryDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("ダウンロード履歴")
-        self.resize(950, 450)
         self.cfg = load_config()
+        self.setWindowTitle(i18n(self.cfg, "history.window_title", "ダウンロード履歴"))
+        self.resize(950, 450)
         self.init_ui()
         self.load_data()
 
@@ -620,7 +622,11 @@ class HistoryDialog(QDialog):
 
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["日時", "タイトル", "URL", "アクション"])
+        header_date = i18n(self.cfg, "history.header_date", "日時")
+        header_title = i18n(self.cfg, "history.header_title", "タイトル")
+        header_url = i18n(self.cfg, "history.header_url", "URL")
+        header_action = i18n(self.cfg, "history.header_action", "アクション")
+        self.table.setHorizontalHeaderLabels([header_date, header_title, header_url, header_action])
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
@@ -632,11 +638,11 @@ class HistoryDialog(QDialog):
         layout.addWidget(self.table)
 
         btn_layout = QHBoxLayout()
-        self.btn_clear = QPushButton("履歴をクリア")
+        self.btn_clear = QPushButton(i18n(self.cfg, "history.btn_clear", "履歴をクリア"))
         self.btn_clear.clicked.connect(self.clear_history)
         btn_layout.addWidget(self.btn_clear)
         
-        self.btn_close = QPushButton("閉じる")
+        self.btn_close = QPushButton(i18n(self.cfg, "history.btn_close", "閉じる"))
         self.btn_close.clicked.connect(self.accept)
         btn_layout.addStretch()
         btn_layout.addWidget(self.btn_close)
@@ -657,7 +663,7 @@ class HistoryDialog(QDialog):
             self.table.setItem(row, 1, QTableWidgetItem(title))
             self.table.setItem(row, 2, QTableWidgetItem(url))
 
-            btn_folder = QPushButton("フォルダを開く")
+            btn_folder = QPushButton(i18n(self.cfg, "history.btn_open_folder", "フォルダを開く"))
             btn_folder.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_folder.clicked.connect(lambda checked, f=folder: self.open_folder(f))
             self.table.setCellWidget(row, 3, btn_folder)
@@ -673,8 +679,8 @@ class HistoryDialog(QDialog):
 
     def clear_history(self):
         msg = QMessageBox(self)
-        msg.setWindowTitle("確認")
-        msg.setText("すべてのダウンロード履歴を削除しますか？")
+        msg.setWindowTitle(i18n(self.cfg, "history.msg_clear_title", "確認"))
+        msg.setText(i18n(self.cfg, "history.msg_clear_body", "すべてのダウンロード履歴を削除しますか？"))
         msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         apply_dialog_theme(msg, str(self.cfg.get("theme", "dark")))
         if msg.exec() == QMessageBox.StandardButton.Yes:

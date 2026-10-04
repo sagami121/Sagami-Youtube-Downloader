@@ -20,14 +20,20 @@ class ConfigManager:
             self.initialized = True
 
     def _load_dotenv(self):
-        """プロジェクトルートの .env および環境別設定ファイルを読み込む"""
+        """アプリディレクトリの .env および環境別設定ファイルを読み込む。
+        カレントディレクトリではなくアプリの実行ディレクトリを基準にすることで、
+        パッケージ版で作業ディレクトリが変わっても意図しないファイルを読まない。
+        """
+        from constants import get_runtime_app_dir
+        base_dir = get_runtime_app_dir()
+
         # 読み込む順番 (後ろほど優先順位が高い)
         env_files = [".env", ".env.Production_environment"]
         env_vars = {}
-        
+
         for filename in env_files:
-            env_path = os.path.join(os.getcwd(), filename)
-            if os.path.exists(env_path):
+            env_path = base_dir / filename
+            if env_path.exists():
                 try:
                     with open(env_path, "r", encoding="utf-8") as f:
                         for line in f:

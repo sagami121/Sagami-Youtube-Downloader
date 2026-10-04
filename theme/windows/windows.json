@@ -1,0 +1,63 @@
+{
+    "info": {
+        "author": "3aGaM1",
+        "theme_name": "Windows",
+        "description": "Windows style light/dark theme"
+    },
+    "windows_light": {
+        "colors": {
+            "bg": "#f3f3f3",
+            "card": "#ffffff",
+            "label": "#1f1f1f",
+            "title": "#1f1f1f",
+            "input_bg": "#ffffff",
+            "input_text": "#1f1f1f",
+            "input_border": "#bdbdbd",
+            "btn_bg": "#e7e7e7",
+            "btn_text": "#1f1f1f"
+        },
+        "props": {
+            "primary_btn": "#0078d4",
+            "primary_btn_hover": "#1a86d9",
+            "focus_border": "#5e9bff",
+            "status_green": "#1a7f37",
+            "card_radius": 16,
+            "input_radius": 6,
+            "btn_radius": 6,
+            "label_size": 11,
+            "label_weight": 700,
+            "title_size": 22,
+            "title_weight": 600,
+            "input_padding": "8px 12px 8px 12px",
+            "button_padding": "10px"
+        }
+    },
+    "windows_dark": {
+        "colors": {
+            "bg": "#1f1f1f",
+            "card": "#2b2b2b",
+            "label": "#d6d6d6",
+            "title": "#ffffff",
+            "input_bg": "#2b2b2b",
+            "input_text": "#ffffff",
+            "input_border": "#3a3a3a",
+            "btn_bg": "#3a3a3a",
+            "btn_text": "#ffffff"
+        },
+        "props": {
+            "primary_btn": "#0078d4",
+            "primary_btn_hover": "#1a86d9",
+            "focus_border": "#60a5ff",
+            "status_green": "#22c55e",
+            "card_radius": 16,
+            "input_radius": 6,
+            "btn_radius": 6,
+            "label_size": 11,
+            "label_weight": 700,
+            "title_size": 22,
+            "title_weight": 600,
+            "input_padding": "8px 12px 8px 12px",
+            "button_padding": "10px"
+        }
+    }
+}

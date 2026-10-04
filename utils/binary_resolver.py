@@ -1,4 +1,5 @@
 import os
+import sys
 import shutil
 import subprocess
 import importlib.util
@@ -13,6 +14,11 @@ from constants import (
     YT_DLP_WIN_URL, FFMPEG_WIN_ZIP_URL, FFPROBE_WIN_ZIP_URL,
     get_runtime_app_dir, is_packaged_executable
 )
+
+def get_user_bin_dir() -> Path:
+    """管理者権限なしで書き込めるユーザー専用バイナリフォルダを返す"""
+    appdata = Path(os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+    return appdata / "SagamiYoutubeDownloader"
 
 def _safe_download_file(url: str, dest_path: Path, timeout: int = 30):
     dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,14 +88,27 @@ def ensure_windows_binaries(status_cb=None):
 
 def resolve_yt_dlp_command():
     app_dir = get_runtime_app_dir()
+
+    # APPDATAのバイナリを最優先（管理者権限なしで更新可能なため）
+    if os.name == "nt":
+        user_bin = get_user_bin_dir() / "yt-dlp.exe"
+        if user_bin.exists() and user_bin.is_file():
+            return [str(user_bin)]
+
+    # アプリフォルダの同梱バイナリ
     candidates = [app_dir / "yt-dlp.exe", app_dir / "yt-dlp"]
     for candidate in candidates:
         if candidate.exists() and candidate.is_file():
             return [str(candidate)]
+
+    # Pythonモジュール
     if importlib.util.find_spec("yt_dlp") is not None:
         return [sys.executable, "-m", "yt_dlp"]
+
+    # PATH上のyt-dlp
     if shutil.which("yt-dlp"):
         return ["yt-dlp"]
+
     return None
 
 def resolve_ffmpeg_command():
